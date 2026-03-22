@@ -4,25 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>股票K线查看</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}" />
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   </head>
   <body>
     <main class="container">
-      <h1>股票K线图</h1>
+      <header class="page-header">
+        <h1>股票K线图</h1>
+        <a class="link-button" href="{{ url_for('cache_page') }}">缓存管理</a>
+      </header>
 
       <form id="query-form" class="query-form">
         <label>
-          市场
-          <select id="market" name="market">
-            <option value="a">A股</option>
-            <option value="hk">港股</option>
-          </select>
-        </label>
-
-        <label>
           股票代码
-          <input id="code" name="code" type="text" placeholder="A股: 600519 / 港股: 00700" required />
+          <select id="code-select" name="code-select">
+            <option value="manual">手动输入</option>
+          </select>
+          <input
+            id="code-input"
+            name="code-input"
+            type="text"
+            placeholder="支持汉字搜索或代码输入，例如 腾讯 / 600519 / 00700"
+          />
         </label>
 
         <label>
@@ -35,10 +39,25 @@
           <input id="end_date" name="end_date" type="date" value="{{ default_end }}" />
         </label>
 
+        <label>
+          数据源
+          <select id="source" name="source">
+            <option value="auto">自动</option>
+            <option value="akshare">AkShare</option>
+            <option value="sina">新浪财经</option>
+            <option value="tushare">TuShare</option>
+            <option value="yfinance">Yahoo Finance</option>
+            <option value="alphavantage">Alpha Vantage</option>
+          </select>
+        </label>
+
+        <button type="button" id="check-sources" class="link-button ghost">检测数据源</button>
+
         <button type="submit">查询</button>
       </form>
 
       <p id="message" class="message"></p>
+      <div id="source-status" class="source-status"></div>
       <div id="chart" class="chart"></div>
     </main>
 

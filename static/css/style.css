@@ -15,8 +15,29 @@ body {
   padding: 0 16px;
 }
 
-h1 {
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subtle {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+h1 {
+  margin: 0;
 }
 
 .query-form {
@@ -45,11 +66,37 @@ button {
   border-radius: 6px;
 }
 
+.is-hidden {
+  display: none;
+}
+
 button {
   cursor: pointer;
   background: #2563eb;
   color: #fff;
   border: none;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  background: #2563eb;
+  color: #fff;
+  text-decoration: none;
+  border: none;
+}
+
+.link-button.ghost {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.link-button.danger {
+  background: #dc2626;
 }
 
 .message {
@@ -62,10 +109,91 @@ button {
   color: #dc2626;
 }
 
+.source-status {
+  margin: 12px 2px 0;
+}
+
+.source-status-card {
+  display: grid;
+  gap: 8px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.source-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.source-status-row.ok {
+  background: #ecfdf3;
+  color: #065f46;
+}
+
+.source-status-row.fail {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.source-status-row.info {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.source-name {
+  font-weight: 600;
+}
+
 .chart {
   width: 100%;
   min-height: 640px;
   background: #fff;
   border-radius: 8px;
   padding: 8px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.cache-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.cache-table th,
+.cache-table td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.cache-table th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+.cache-table td .link-button {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.cache-table .empty {
+  text-align: center;
+  color: #6b7280;
+  padding: 20px 8px;
 }
