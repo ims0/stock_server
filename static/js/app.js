@@ -188,23 +188,53 @@ function renderQueryProgress(steps) {
   sourceStatus.innerHTML = `<div class="source-status-card">${rows}</div>`;
 }
 
-async function fetchKline(payload) {
+function streamKline(payload, onProgress) {
   const params = new URLSearchParams(payload);
-  const response = await fetch(`/api/kline?${params.toString()}`);
-  const result = await response.json();
+  const source = new EventSource(`/api/kline/stream?${params.toString()}`);
 
-  if (!response.ok) {
-    const error = new Error(result.error || '查询失败');
-    error.progress = result.progress || [];
-    throw error;
-  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
 
-  return result;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        source.close();
+      }
+    };
+
+    source.addEventListener('progress', (event) => {
+      const result = JSON.parse(event.data);
+      if (onProgress) {
+        onProgress(result.message);
+      }
+    });
+
+    source.addEventListener('result', (event) => {
+      const result = JSON.parse(event.data);
+      finish();
+      if (result.status >= 400) {
+        const error = new Error(result.payload.error || '查询失败');
+        error.progress = result.payload.progress || [];
+        reject(error);
+        return;
+      }
+      resolve(result.payload);
+    });
+
+    source.addEventListener('error', () => {
+      if (settled) {
+        return;
+      }
+      finish();
+      reject(new Error('查询连接已中断'));
+    });
+  });
 }
 
 async function onSubmit(event) {
   event.preventDefault();
-  showMessage('查询中...');
+  const progressHistory = [];
+  showMessage('开始查询...');
   renderSourceStatus([]);
 
   const payload = {
@@ -220,7 +250,11 @@ async function onSubmit(event) {
   }
 
   try {
-    const result = await fetchKline(payload);
+    const result = await streamKline(payload, (step) => {
+      progressHistory.push(step);
+      renderQueryProgress(progressHistory);
+      showMessage(step);
+    });
     const titleName = result.name ? `${result.name} ` : '';
     buildCandlestick(result.data, `${result.market_label} ${titleName}${result.code} K线图`);
     renderQueryProgress(result.progress || []);

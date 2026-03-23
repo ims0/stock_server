@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, timedelta
 import json
 import sqlite3
 import time
+from queue import Empty, Queue
+from threading import Thread
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -12,7 +15,7 @@ import os
 import pandas as pd
 import tushare as ts
 import yfinance as yf
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 app = Flask(__name__)
 
@@ -270,6 +273,17 @@ def _infer_non_trading_dates(start_date: str, end_date: str, trading_frame: pd.D
     return known_days - trading_days
 
 
+def _emit_progress(
+    progress: list[str] | None,
+    progress_callback: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    if progress is not None:
+        progress.append(message)
+    if progress_callback is not None:
+        progress_callback(message)
+
+
 def _build_output_frame(trading_frame: pd.DataFrame, closed_dates: set[str]) -> pd.DataFrame:
     trading = trading_frame.copy()
     if not trading.empty:
@@ -437,10 +451,15 @@ def _get_cached_symbol_name(market: str, code: str) -> str:
 
 
 def _fetch_with_cache(
-    market: str, code: str, start_date: str, end_date: str, source: str
+    market: str,
+    code: str,
+    start_date: str,
+    end_date: str,
+    source: str,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, str, list[str]]:
     progress: list[str] = []
-    progress.append("步骤1/2：检查本地缓存")
+    _emit_progress(progress, progress_callback, "步骤1/2：检查本地缓存")
 
     all_cached = _load_cached_kline_all(market, code)
     all_non_trading = _load_non_trading_dates_all(market, code)
@@ -454,32 +473,38 @@ def _fetch_with_cache(
 
     all_known_dates = set(all_cached["date"].tolist()) | all_non_trading
     if all_known_dates:
-        progress.append(
+        _emit_progress(
+            progress,
+            progress_callback,
             f"缓存已有 {len(all_known_dates)} 条，覆盖区间 {min(all_known_dates)} ~ {max(all_known_dates)}"
         )
     else:
-        progress.append("缓存为空")
+        _emit_progress(progress, progress_callback, "缓存为空")
 
     known_dates = set(requested_cached["date"].tolist()) | cached_non_trading
     required_dates = set(_all_dates(start_date, end_date))
     if required_dates and required_dates.issubset(known_dates):
-        progress.append("缓存已覆盖请求区间（含休市空日期），直接返回缓存数据")
+        _emit_progress(
+            progress,
+            progress_callback,
+            "缓存已覆盖请求区间（含休市空日期），直接返回缓存数据",
+        )
         return _build_output_frame(requested_cached, cached_non_trading), "cache", progress
 
     if not all_cached.empty:
         cache_start = all_cached["date"].min()
         cache_end = all_cached["date"].max()
         if start_date >= cache_start and end_date <= cache_end and requested_cached.empty:
-            progress.append("缓存已覆盖请求区间，直接返回缓存数据")
+            _emit_progress(progress, progress_callback, "缓存已覆盖请求区间，直接返回缓存数据")
             return _build_output_frame(requested_cached, cached_non_trading), "cache", progress
 
-    progress.append("步骤2/2：缓存不足，开始请求网络数据")
+    _emit_progress(progress, progress_callback, "步骤2/2：缓存不足，开始请求网络数据")
     fetched_parts: list[pd.DataFrame] = []
     used_source = ""
 
     if all_cached.empty:
         fetched, current_source = _fetch_kline_with_source(
-            market, code, start_date, end_date, source, progress
+            market, code, start_date, end_date, source, progress, progress_callback
         )
         if not fetched.empty:
             fetched_parts.append(fetched)
@@ -487,14 +512,14 @@ def _fetch_with_cache(
             inferred_closed = _infer_non_trading_dates(start_date, end_date, fetched)
             if inferred_closed:
                 _save_non_trading_dates(market, code, inferred_closed)
-                progress.append(f"补记休市日期 {len(inferred_closed)} 天")
+                _emit_progress(progress, progress_callback, f"补记休市日期 {len(inferred_closed)} 天")
     else:
         cache_start = all_cached["date"].min()
         cache_end = all_cached["date"].max()
         if start_date < cache_start:
             before_end = _shift_date(cache_start, -1)
             fetched_before, source_before = _fetch_kline_with_source(
-                market, code, start_date, before_end, source, progress
+                market, code, start_date, before_end, source, progress, progress_callback
             )
             if not fetched_before.empty:
                 fetched_parts.append(fetched_before)
@@ -502,11 +527,15 @@ def _fetch_with_cache(
                 inferred_closed_before = _infer_non_trading_dates(start_date, before_end, fetched_before)
                 if inferred_closed_before:
                     _save_non_trading_dates(market, code, inferred_closed_before)
-                    progress.append(f"补记休市日期 {len(inferred_closed_before)} 天")
+                    _emit_progress(
+                        progress,
+                        progress_callback,
+                        f"补记休市日期 {len(inferred_closed_before)} 天",
+                    )
         if end_date > cache_end:
             after_start = _shift_date(cache_end, 1)
             fetched_after, source_after = _fetch_kline_with_source(
-                market, code, after_start, end_date, source, progress
+                market, code, after_start, end_date, source, progress, progress_callback
             )
             if not fetched_after.empty:
                 fetched_parts.append(fetched_after)
@@ -514,7 +543,11 @@ def _fetch_with_cache(
                 inferred_closed_after = _infer_non_trading_dates(after_start, end_date, fetched_after)
                 if inferred_closed_after:
                     _save_non_trading_dates(market, code, inferred_closed_after)
-                    progress.append(f"补记休市日期 {len(inferred_closed_after)} 天")
+                    _emit_progress(
+                        progress,
+                        progress_callback,
+                        f"补记休市日期 {len(inferred_closed_after)} 天",
+                    )
 
     fetched = (
         pd.concat(fetched_parts, ignore_index=True) if fetched_parts else pd.DataFrame()
@@ -527,9 +560,9 @@ def _fetch_with_cache(
     final_output = _build_output_frame(final_data, final_non_trading)
 
     if final_output.empty:
-        progress.append("网络数据源未返回有效数据")
+        _emit_progress(progress, progress_callback, "网络数据源未返回有效数据")
     else:
-        progress.append(f"查询完成，返回 {len(final_output)} 条数据")
+        _emit_progress(progress, progress_callback, f"查询完成，返回 {len(final_output)} 条数据")
 
     return final_output, used_source, progress
 
@@ -762,21 +795,22 @@ def _fetch_kline_with_source(
     end_date: str,
     source: str,
     progress: list[str] | None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, str]:
     start = _to_yyyymmdd(start_date)
     end = _to_yyyymmdd(end_date)
 
     if source != "auto":
-        if progress is not None:
-            progress.append(f"尝试数据源：{DATA_SOURCES.get(source, source)}")
+        _emit_progress(progress, progress_callback, f"尝试数据源：{DATA_SOURCES.get(source, source)}")
         data = _fetch_kline_from_source(market, code, start_date, end_date, start, end, source)
-        if progress is not None:
-            if data.empty:
-                progress.append(f"数据源 {DATA_SOURCES.get(source, source)} 返回空数据")
-            else:
-                progress.append(
-                    f"数据源 {DATA_SOURCES.get(source, source)} 成功，返回 {len(data)} 条"
-                )
+        if data.empty:
+            _emit_progress(progress, progress_callback, f"数据源 {DATA_SOURCES.get(source, source)} 返回空数据")
+        else:
+            _emit_progress(
+                progress,
+                progress_callback,
+                f"数据源 {DATA_SOURCES.get(source, source)} 成功，返回 {len(data)} 条",
+            )
         return data, source if not data.empty else ""
 
     candidates = ["akshare"]
@@ -787,25 +821,23 @@ def _fetch_kline_with_source(
 
     for candidate in candidates:
         if candidate == "tushare" and not _has_tushare_token():
-            if progress is not None:
-                progress.append("跳过 TuShare：未配置 Token")
+            _emit_progress(progress, progress_callback, "跳过 TuShare：未配置 Token")
             continue
         if candidate == "alphavantage" and not os.environ.get("ALPHAVANTAGE_API_KEY"):
-            if progress is not None:
-                progress.append("跳过 Alpha Vantage：未配置 API Key")
+            _emit_progress(progress, progress_callback, "跳过 Alpha Vantage：未配置 API Key")
             continue
-        if progress is not None:
-            progress.append(f"尝试数据源：{DATA_SOURCES.get(candidate, candidate)}")
+        _emit_progress(progress, progress_callback, f"尝试数据源：{DATA_SOURCES.get(candidate, candidate)}")
         data = _fetch_kline_from_source(
             market, code, start_date, end_date, start, end, candidate
         )
         if data.empty:
-            if progress is not None:
-                progress.append(f"数据源 {DATA_SOURCES.get(candidate, candidate)} 无可用数据")
+            _emit_progress(progress, progress_callback, f"数据源 {DATA_SOURCES.get(candidate, candidate)} 无可用数据")
             continue
         if progress is not None:
-            progress.append(
-                f"数据源 {DATA_SOURCES.get(candidate, candidate)} 成功，返回 {len(data)} 条"
+            _emit_progress(
+                progress,
+                progress_callback,
+                f"数据源 {DATA_SOURCES.get(candidate, candidate)} 成功，返回 {len(data)} 条",
             )
         return data, candidate
 
@@ -1262,15 +1294,15 @@ def cache_page():
     return render_template("cache.html")
 
 
-@app.get("/api/kline")
-def kline_api():
-    code = request.args.get("code", "").strip()
-    start_date = request.args.get("start_date", "").strip()
-    end_date = request.args.get("end_date", "").strip()
-    source = request.args.get("source", "auto").strip().lower() or "auto"
-
+def _execute_kline_query(
+    code: str,
+    start_date: str,
+    end_date: str,
+    source: str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> tuple[dict[str, object], int]:
     if not code:
-        return jsonify({"error": "请输入股票代码"}), 400
+        return {"error": "请输入股票代码"}, 400
 
     if not start_date or not end_date:
         default_start, default_end = _default_dates()
@@ -1278,13 +1310,13 @@ def kline_api():
         end_date = end_date or default_end
 
     if source not in DATA_SOURCES:
-        return jsonify({"error": "不支持的数据源"}), 400
+        return {"error": "不支持的数据源"}, 400
 
     if source == "alphavantage" and not os.environ.get("ALPHAVANTAGE_API_KEY"):
-        return jsonify({"error": "Alpha Vantage 未配置 API Key"}), 400
+        return {"error": "Alpha Vantage 未配置 API Key"}, 400
 
     if source == "tushare" and not _has_tushare_token():
-        return jsonify({"error": "TuShare 未配置 Token"}), 400
+        return {"error": "TuShare 未配置 Token"}, 400
 
     try:
         market, symbol, symbol_name = _resolve_input_symbol(code)
@@ -1296,20 +1328,19 @@ def kline_api():
             start_date=start_date,
             end_date=end_date,
             source=source,
+            progress_callback=progress_callback,
         )
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        return {"error": str(exc)}, 400
     except Exception as exc:
-        return jsonify({"error": f"数据获取失败: {exc}"}), 500
+        return {"error": f"数据获取失败: {exc}"}, 500
 
     if data.empty:
         return (
-            jsonify(
-                {
-                    "error": "未查询到K线数据，请检查代码或时间范围",
-                    "progress": progress,
-                }
-            ),
+            {
+                "error": "未查询到K线数据，请检查代码或时间范围",
+                "progress": progress,
+            },
             404,
         )
 
@@ -1318,7 +1349,7 @@ def kline_api():
     if final_source == "cache":
         final_source_label = "本地缓存"
 
-    return jsonify(
+    return (
         {
             "market": market,
             "market_label": "A股" if market == "a" else "港股",
@@ -1331,8 +1362,65 @@ def kline_api():
             "source_label": final_source_label,
             "progress": progress,
             "data": data.to_dict(orient="records"),
-        }
+        },
+        200,
     )
+
+
+@app.get("/api/kline")
+def kline_api():
+    code = request.args.get("code", "").strip()
+    start_date = request.args.get("start_date", "").strip()
+    end_date = request.args.get("end_date", "").strip()
+    source = request.args.get("source", "auto").strip().lower() or "auto"
+    payload, status_code = _execute_kline_query(code, start_date, end_date, source)
+    return jsonify(payload), status_code
+
+
+@app.get("/api/kline/stream")
+def kline_stream_api():
+    code = request.args.get("code", "").strip()
+    start_date = request.args.get("start_date", "").strip()
+    end_date = request.args.get("end_date", "").strip()
+    source = request.args.get("source", "auto").strip().lower() or "auto"
+
+    queue: Queue[tuple[str, str]] = Queue()
+
+    def push_progress(message: str) -> None:
+        queue.put(("progress", message))
+
+    def worker() -> None:
+        payload, status_code = _execute_kline_query(
+            code,
+            start_date,
+            end_date,
+            source,
+            progress_callback=push_progress,
+        )
+        queue.put(("result", json.dumps({"status": status_code, "payload": payload}, ensure_ascii=False)))
+
+    Thread(target=worker, daemon=True).start()
+
+    def event_stream():
+        while True:
+            try:
+                event_name, raw_data = queue.get(timeout=0.5)
+            except Empty:
+                yield ": keepalive\n\n"
+                continue
+
+            if event_name == "progress":
+                yield f"event: progress\ndata: {json.dumps({'message': raw_data}, ensure_ascii=False)}\n\n"
+                continue
+
+            if event_name == "result":
+                yield f"event: result\ndata: {raw_data}\n\n"
+                break
+
+    response = Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 @app.get("/api/cache/summary")
