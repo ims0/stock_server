@@ -5,6 +5,9 @@ const codeSelect = document.getElementById('code-select');
 const codeInput = document.getElementById('code-input');
 const sourceStatus = document.getElementById('source-status');
 const checkSourcesButton = document.getElementById('check-sources');
+const maControls = document.getElementById('ma-controls');
+const toggleMa5 = document.getElementById('toggle-ma5');
+const toggleMa10 = document.getElementById('toggle-ma10');
 
 function showMessage(text, isError = false) {
   messageEl.textContent = text;
@@ -57,6 +60,7 @@ function buildCandlestick(data, title) {
     type: 'scatter',
     mode: 'lines',
     name: 'MA5',
+    visible: toggleMa5.checked,
     line: { width: 1.5, color: '#f59e0b' },
   };
 
@@ -66,6 +70,7 @@ function buildCandlestick(data, title) {
     type: 'scatter',
     mode: 'lines',
     name: 'MA10',
+    visible: toggleMa10.checked,
     line: { width: 1.5, color: '#3b82f6' },
   };
 
@@ -84,7 +89,16 @@ function buildCandlestick(data, title) {
   };
 
   Plotly.newPlot(chartContainer, [trace, ma5Trace, ma10Trace], layout, { responsive: true });
+  maControls.classList.add('visible');
 }
+
+toggleMa5.addEventListener('change', () => {
+  Plotly.restyle(chartContainer, { visible: toggleMa5.checked }, [1]);
+});
+
+toggleMa10.addEventListener('change', () => {
+  Plotly.restyle(chartContainer, { visible: toggleMa10.checked }, [2]);
+});
 
 function setManualMode(enabled) {
   codeInput.classList.toggle('is-hidden', !enabled);

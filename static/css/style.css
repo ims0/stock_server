@@ -157,6 +157,45 @@ button {
   padding: 8px;
 }
 
+.ma-controls {
+  display: none;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: #fff;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.ma-controls.visible {
+  display: flex;
+}
+
+.ma-controls-label {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.ma-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+
+.ma-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #2563eb;
+  padding: 0;
+  border: none;
+}
+
 .card {
   background: #fff;
   border-radius: 8px;

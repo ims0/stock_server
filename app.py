@@ -696,6 +696,18 @@ def _lookup_name_by_code(market: str, code: str) -> str:
     if local_name:
         return local_name
 
+    # Lightweight A-share code→name mapping (faster and more reliable)
+    if market == "a":
+        try:
+            df = ak.stock_info_a_code_name()
+            match = df[df["code"].astype(str) == code]
+            if not match.empty:
+                name = str(match.iloc[0]["name"]).strip()
+                if name:
+                    return name
+        except Exception:
+            pass
+
     try:
         if market == "a":
             data = ak.stock_zh_a_spot_em()
