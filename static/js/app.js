@@ -13,14 +13,19 @@ function showMessage(text, isError = false) {
 
 function movingAverage(values, windowSize) {
   const result = [];
+  const validValues = [];
   for (let i = 0; i < values.length; i += 1) {
-    if (i + 1 < windowSize) {
-      result.push(null);
-      continue;
+    const v = values[i];
+    if (v !== null && v !== undefined && !Number.isNaN(v)) {
+      validValues.push(v);
     }
-    const slice = values.slice(i + 1 - windowSize, i + 1);
-    const sum = slice.reduce((acc, value) => acc + value, 0);
-    result.push(sum / windowSize);
+    if (validValues.length < windowSize) {
+      result.push(null);
+    } else {
+      const window = validValues.slice(-windowSize);
+      const sum = window.reduce((acc, val) => acc + val, 0);
+      result.push(sum / windowSize);
+    }
   }
   return result;
 }
