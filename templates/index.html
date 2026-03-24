@@ -63,6 +63,18 @@
         <label class="ma-toggle"><input type="checkbox" id="toggle-ma5" checked /><span style="color:#f59e0b;">MA5</span></label>
         <label class="ma-toggle"><input type="checkbox" id="toggle-ma10" checked /><span style="color:#3b82f6;">MA10</span></label>
       </div>
+      <div id="trade-controls" class="trade-controls">
+        <span class="trade-controls-label">交易模拟：</span>
+        <label class="trade-input-group">
+          <span style="color:#16a34a;font-weight:600;">买入价</span>
+          <input type="number" id="buy-line-input" step="0.1" min="0" />
+        </label>
+        <label class="trade-input-group">
+          <span style="color:#dc2626;font-weight:600;">卖出价</span>
+          <input type="number" id="sell-line-input" step="0.1" min="0" />
+        </label>
+        <div id="trade-stats" class="trade-stats"></div>
+      </div>
       <div id="chart" class="chart"></div>
     </main>
 

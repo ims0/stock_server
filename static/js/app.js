@@ -8,6 +8,16 @@ const checkSourcesButton = document.getElementById('check-sources');
 const maControls = document.getElementById('ma-controls');
 const toggleMa5 = document.getElementById('toggle-ma5');
 const toggleMa10 = document.getElementById('toggle-ma10');
+const tradeControls = document.getElementById('trade-controls');
+const buyLineInput = document.getElementById('buy-line-input');
+const sellLineInput = document.getElementById('sell-line-input');
+const tradeStatsEl = document.getElementById('trade-stats');
+
+// Trade simulation state
+let _tradeData = null;
+let _buyPrice = null;
+let _sellPrice = null;
+let _suppressRelayout = false;
 
 function showMessage(text, isError = false) {
   messageEl.textContent = text;
@@ -34,6 +44,15 @@ function movingAverage(values, windowSize) {
 }
 
 function buildCandlestick(data, title) {
+  _tradeData = data;
+
+  // Initialize trade lines at median ±5%
+  const validCloses = data.filter((r) => r.close != null).map((r) => r.close);
+  const sorted = [...validCloses].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 0;
+  _buyPrice = Math.round(median * 0.95 * 10) / 10;
+  _sellPrice = Math.round(median * 1.05 * 10) / 10;
+
   const x = data.map((row) => row.date);
   const open = data.map((row) => row.open);
   const high = data.map((row) => row.high);
@@ -41,6 +60,7 @@ function buildCandlestick(data, title) {
   const close = data.map((row) => row.close);
   const ma5 = movingAverage(close, 5);
   const ma10 = movingAverage(close, 10);
+  const signals = calcTradeSignals(data, _buyPrice, _sellPrice);
 
   const trace = {
     x,
@@ -74,6 +94,27 @@ function buildCandlestick(data, title) {
     line: { width: 1.5, color: '#3b82f6' },
   };
 
+  // trace[3] = buy markers, trace[4] = sell markers
+  const buyMarkerTrace = {
+    x: signals.buyDates,
+    y: signals.buyPrices,
+    type: 'scatter',
+    mode: 'markers',
+    name: '买入',
+    marker: { symbol: 'triangle-up', size: 14, color: '#16a34a' },
+    hovertemplate: '买入 %{x}<br>价格: %{y:.2f}<extra></extra>',
+  };
+
+  const sellMarkerTrace = {
+    x: signals.sellDates,
+    y: signals.sellPrices,
+    type: 'scatter',
+    mode: 'markers',
+    name: '卖出',
+    marker: { symbol: 'triangle-down', size: 14, color: '#dc2626' },
+    hovertemplate: '卖出 %{x}<br>价格: %{y:.2f}<extra></extra>',
+  };
+
   const layout = {
     title,
     margin: { t: 50, r: 20, b: 60, l: 50 },
@@ -86,10 +127,118 @@ function buildCandlestick(data, title) {
       title: '价格',
       fixedrange: false,
     },
+    shapes: [
+      {
+        type: 'line',
+        x0: x[0], x1: x[x.length - 1],
+        y0: _buyPrice, y1: _buyPrice,
+        xref: 'x', yref: 'y',
+        line: { color: '#16a34a', width: 2, dash: 'dash' },
+      },
+      {
+        type: 'line',
+        x0: x[0], x1: x[x.length - 1],
+        y0: _sellPrice, y1: _sellPrice,
+        xref: 'x', yref: 'y',
+        line: { color: '#dc2626', width: 2, dash: 'dash' },
+      },
+    ],
   };
 
-  Plotly.newPlot(chartContainer, [trace, ma5Trace, ma10Trace], layout, { responsive: true });
+  Plotly.newPlot(
+    chartContainer,
+    [trace, ma5Trace, ma10Trace, buyMarkerTrace, sellMarkerTrace],
+    layout,
+    { responsive: true, edits: { shapePosition: true } },
+  );
+
   maControls.classList.add('visible');
+  tradeControls.classList.add('visible');
+  buyLineInput.value = _buyPrice.toFixed(1);
+  sellLineInput.value = _sellPrice.toFixed(1);
+  renderTradeStats(signals);
+
+  // Re-register each time the chart is rebuilt
+  chartContainer.removeAllListeners('plotly_relayout');
+  chartContainer.on('plotly_relayout', onTradeRelayout);
+}
+
+function calcTradeSignals(data, buyPrice, sellPrice) {
+  const buyDates = [];
+  const buyPrices = [];
+  const sellDates = [];
+  const sellPrices = [];
+  let holding = false;
+
+  for (const row of data) {
+    if (!row.is_open || row.low == null || row.high == null) continue;
+    if (!holding && row.low <= buyPrice && buyPrice <= row.high) {
+      buyDates.push(row.date);
+      buyPrices.push(buyPrice);
+      holding = true;
+    } else if (holding && row.low <= sellPrice && sellPrice <= row.high) {
+      sellDates.push(row.date);
+      sellPrices.push(sellPrice);
+      holding = false;
+    }
+  }
+  return { buyDates, buyPrices, sellDates, sellPrices };
+}
+
+function renderTradeStats(signals) {
+  const buys = signals.buyDates.length;
+  const sells = signals.sellDates.length;
+  let fund = 100;
+  for (let i = 0; i < sells; i += 1) {
+    fund *= signals.sellPrices[i] / signals.buyPrices[i];
+  }
+  const multiplier = fund / 100;
+  const cls = multiplier >= 1 ? 'profit' : 'loss';
+  tradeStatsEl.innerHTML =
+    `<span>买入 <strong>${buys}</strong> 次</span>` +
+    `<span>卖出 <strong>${sells}</strong> 次</span>` +
+    `<span>资金 <strong class="${cls}">${multiplier.toFixed(2)}x</strong></span>`;
+}
+
+function updateTradeLines(buyPrice, sellPrice) {
+  _buyPrice = Math.round(buyPrice * 10) / 10;
+  _sellPrice = Math.round(sellPrice * 10) / 10;
+  buyLineInput.value = _buyPrice.toFixed(1);
+  sellLineInput.value = _sellPrice.toFixed(1);
+  if (!_tradeData) return;
+
+  const signals = calcTradeSignals(_tradeData, _buyPrice, _sellPrice);
+  Plotly.restyle(chartContainer, { x: [signals.buyDates], y: [signals.buyPrices] }, [3]);
+  Plotly.restyle(chartContainer, { x: [signals.sellDates], y: [signals.sellPrices] }, [4]);
+
+  const x0 = _tradeData[0].date;
+  const x1 = _tradeData[_tradeData.length - 1].date;
+  _suppressRelayout = true;
+  Plotly.relayout(chartContainer, {
+    shapes: [
+      { type: 'line', x0, x1, y0: _buyPrice, y1: _buyPrice, xref: 'x', yref: 'y', line: { color: '#16a34a', width: 2, dash: 'dash' } },
+      { type: 'line', x0, x1, y0: _sellPrice, y1: _sellPrice, xref: 'x', yref: 'y', line: { color: '#dc2626', width: 2, dash: 'dash' } },
+    ],
+  }).then(() => { _suppressRelayout = false; });
+
+  renderTradeStats(signals);
+}
+
+function onTradeRelayout(eventData) {
+  if (_suppressRelayout) return;
+  let newBuy = _buyPrice;
+  let newSell = _sellPrice;
+  let changed = false;
+
+  if ('shapes[0].y0' in eventData || 'shapes[0].y1' in eventData) {
+    const raw = eventData['shapes[0].y0'] != null ? eventData['shapes[0].y0'] : eventData['shapes[0].y1'];
+    if (raw != null) { newBuy = raw; changed = true; }
+  }
+  if ('shapes[1].y0' in eventData || 'shapes[1].y1' in eventData) {
+    const raw = eventData['shapes[1].y0'] != null ? eventData['shapes[1].y0'] : eventData['shapes[1].y1'];
+    if (raw != null) { newSell = raw; changed = true; }
+  }
+  if (changed) updateTradeLines(newBuy, newSell);
 }
 
 toggleMa5.addEventListener('change', () => {
@@ -283,6 +432,7 @@ async function onSubmit(event) {
     await refreshCacheOptions(result.code);
   } catch (error) {
     Plotly.purge(chartContainer);
+    tradeControls.classList.remove('visible');
     renderQueryProgress(error.progress || []);
     showMessage(error.message, true);
   }
@@ -322,6 +472,16 @@ codeSelect.addEventListener('change', () => {
   setManualMode(codeSelect.value === 'manual');
 });
 checkSourcesButton.addEventListener('click', checkSources);
+
+buyLineInput.addEventListener('change', () => {
+  const v = parseFloat(buyLineInput.value);
+  if (!isNaN(v) && v > 0 && _tradeData) updateTradeLines(v, _sellPrice);
+});
+
+sellLineInput.addEventListener('change', () => {
+  const v = parseFloat(sellLineInput.value);
+  if (!isNaN(v) && v > 0 && _tradeData) updateTradeLines(_buyPrice, v);
+});
 
 setManualMode(true);
 refreshCacheOptions('manual');

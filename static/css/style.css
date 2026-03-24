@@ -196,6 +196,58 @@ button {
   border: none;
 }
 
+.trade-controls {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: #fff;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.trade-controls.visible {
+  display: flex;
+}
+
+.trade-controls-label {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.trade-input-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.trade-input-group input {
+  width: 90px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.trade-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+  color: #374151;
+  margin-left: auto;
+}
+
+.trade-stats .profit {
+  color: #16a34a;
+}
+
+.trade-stats .loss {
+  color: #dc2626;
+}
+
 .card {
   background: #fff;
   border-radius: 8px;
