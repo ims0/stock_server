@@ -708,6 +708,17 @@ def _lookup_name_by_code(market: str, code: str) -> str:
         except Exception:
             pass
 
+    # HK stock: use company profile endpoint which returns Chinese name
+    if market == "hk":
+        try:
+            df = ak.stock_hk_company_profile_em(symbol=code)
+            if not df.empty and "公司名称" in df.columns:
+                name = str(df.iloc[0]["公司名称"]).strip()
+                if name:
+                    return name
+        except Exception:
+            pass
+
     try:
         if market == "a":
             data = ak.stock_zh_a_spot_em()
