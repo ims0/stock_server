@@ -487,7 +487,7 @@ def _fetch_with_cache(
         _emit_progress(
             progress,
             progress_callback,
-            "缓存已覆盖请求区间（含休市空日期），直接返回缓存数据",
+            "缓存已覆盖请求区间，返回缓存数据",
         )
         return _build_output_frame(requested_cached, cached_non_trading), "cache", progress
 

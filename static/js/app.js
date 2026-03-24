@@ -13,6 +13,17 @@ const buyLineInput = document.getElementById('buy-line-input');
 const sellLineInput = document.getElementById('sell-line-input');
 const tradeStatsEl = document.getElementById('trade-stats');
 const optimizeBtn = document.getElementById('optimize-btn');
+const datePreset = document.getElementById('date-preset');
+
+function applyDatePreset(months) {
+  if (!months) return;
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(start.getMonth() - months);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  document.getElementById('start_date').value = fmt(start);
+  document.getElementById('end_date').value = fmt(end);
+}
 
 // Trade simulation state
 let _tradeData = null;
@@ -420,15 +431,25 @@ function renderQueryProgress(steps) {
     return;
   }
 
-  const rows = steps
-    .map(
-      (step, index) => `
+  // Group steps by phase: "步骤N/M：..." lines start a new group.
+  // Each group is collapsed into one info row.
+  const groups = [];
+  for (const step of steps) {
+    if (/^步骤\d+\/\d+：/.test(step)) {
+      groups.push([step.replace(/^步骤\d+\/\d+：/, '')]);
+    } else if (groups.length === 0) {
+      groups.push([step]);
+    } else {
+      groups[groups.length - 1].push(step);
+    }
+  }
+
+  const rows = groups
+    .map((parts) => `
         <div class="source-status-row info">
-          <span class="source-name">步骤 ${index + 1}</span>
-          <span class="source-detail">${step}</span>
+          <span class="source-detail">${parts.join('，')}</span>
         </div>
-      `
-    )
+      `)
     .join('');
 
   sourceStatus.innerHTML = `<div class="source-status-card">${rows}</div>`;
@@ -479,6 +500,9 @@ function streamKline(payload, onProgress) {
 
 async function onSubmit(event) {
   event.preventDefault();
+  // Apply preset first if selected
+  const presetMonths = parseInt(datePreset.value, 10);
+  if (presetMonths) applyDatePreset(presetMonths);
   const progressHistory = [];
   showMessage('开始查询...');
   renderSourceStatus([]);
@@ -563,6 +587,11 @@ sellLineInput.addEventListener('change', () => {
 });
 
 optimizeBtn.addEventListener('click', optimizeBtnHandler);
+
+datePreset.addEventListener('change', () => {
+  const months = parseInt(datePreset.value, 10);
+  if (months) applyDatePreset(months);
+});
 
 setManualMode(true);
 const _lastCode = localStorage.getItem('lastCode');
