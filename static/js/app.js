@@ -12,6 +12,7 @@ const tradeControls = document.getElementById('trade-controls');
 const buyLineInput = document.getElementById('buy-line-input');
 const sellLineInput = document.getElementById('sell-line-input');
 const tradeStatsEl = document.getElementById('trade-stats');
+const optimizeBtn = document.getElementById('optimize-btn');
 
 // Trade simulation state
 let _tradeData = null;
@@ -69,7 +70,7 @@ function buildCandlestick(data, title) {
     low,
     close,
     type: 'candlestick',
-    increasing: { line: { color: '#ef4444' } },
+    increasing: { line: { color: '#ef4444' }, fillcolor: 'rgba(255,255,255,0)' },
     decreasing: { line: { color: '#22c55e' } },
     name: 'K线',
   };
@@ -101,7 +102,7 @@ function buildCandlestick(data, title) {
     type: 'scatter',
     mode: 'markers',
     name: '买入',
-    marker: { symbol: 'triangle-up', size: 14, color: '#16a34a' },
+    marker: { symbol: 'star', size: 14, color: '#16a34a' },
     hovertemplate: '买入 %{x}<br>价格: %{y:.2f}<extra></extra>',
   };
 
@@ -111,7 +112,7 @@ function buildCandlestick(data, title) {
     type: 'scatter',
     mode: 'markers',
     name: '卖出',
-    marker: { symbol: 'triangle-down', size: 14, color: '#dc2626' },
+    marker: { symbol: 'star', size: 14, color: '#dc2626' },
     hovertemplate: '卖出 %{x}<br>价格: %{y:.2f}<extra></extra>',
   };
 
@@ -127,6 +128,7 @@ function buildCandlestick(data, title) {
       title: '价格',
       fixedrange: false,
     },
+    bargap: 0.6,
     shapes: [
       {
         type: 'line',
@@ -172,17 +174,86 @@ function calcTradeSignals(data, buyPrice, sellPrice) {
 
   for (const row of data) {
     if (!row.is_open || row.low == null || row.high == null) continue;
-    if (!holding && row.low <= buyPrice && buyPrice <= row.high) {
+    // Buy: triggers when the day's low <= buyPrice (price dipped to or below limit)
+    // Execution at min(buyPrice, high): if whole candle is below buy line → buy at day-high
+    if (!holding && row.low <= buyPrice) {
+      const execPrice = Math.min(buyPrice, row.high);
       buyDates.push(row.date);
-      buyPrices.push(buyPrice);
+      buyPrices.push(execPrice);
       holding = true;
-    } else if (holding && row.low <= sellPrice && sellPrice <= row.high) {
+    // Sell: triggers when the day's high >= sellPrice (price rose to or above limit)
+    // Execution at max(sellPrice, low): if whole candle is above sell line → sell at day-low
+    } else if (holding && row.high >= sellPrice) {
+      const execPrice = Math.max(sellPrice, row.low);
       sellDates.push(row.date);
-      sellPrices.push(sellPrice);
+      sellPrices.push(execPrice);
       holding = false;
     }
   }
   return { buyDates, buyPrices, sellDates, sellPrices };
+}
+
+function findOptimalLines(data) {
+  // Collect candidate price levels from all trading-day lows and highs
+  const tradingRows = data.filter((r) => r.is_open && r.low != null && r.high != null);
+  if (tradingRows.length === 0) return null;
+
+  const rawLevels = [];
+  for (const r of tradingRows) {
+    rawLevels.push(r.low, r.high);
+  }
+  // Deduplicate and sort
+  const levels = [...new Set(rawLevels.map((v) => Math.round(v * 10) / 10))].sort((a, b) => a - b);
+
+  // Down-sample to at most 120 evenly-spaced candidates to keep O(N²) manageable
+  const MAX = 120;
+  let candidates = levels;
+  if (levels.length > MAX) {
+    const step = (levels.length - 1) / (MAX - 1);
+    candidates = Array.from({ length: MAX }, (_, i) => levels[Math.round(i * step)]);
+  }
+
+  let bestBuy = null;
+  let bestSell = null;
+  let bestMultiplier = -Infinity;
+
+  for (let bi = 0; bi < candidates.length; bi += 1) {
+    const bp = candidates[bi];
+    for (let si = bi + 1; si < candidates.length; si += 1) {
+      const sp = candidates[si];
+      const signals = calcTradeSignals(data, bp, sp);
+      const sells = signals.sellPrices.length;
+      if (sells === 0) continue;
+      let fund = 1;
+      for (let k = 0; k < sells; k += 1) {
+        fund *= signals.sellPrices[k] / signals.buyPrices[k];
+      }
+      if (fund > bestMultiplier) {
+        bestMultiplier = fund;
+        bestBuy = bp;
+        bestSell = sp;
+      }
+    }
+  }
+
+  return bestBuy !== null ? { buyPrice: bestBuy, sellPrice: bestSell, multiplier: bestMultiplier } : null;
+}
+
+function optimizeBtnHandler() {
+  if (!_tradeData) return;
+  optimizeBtn.disabled = true;
+  optimizeBtn.textContent = '计算中…';
+  // Defer to next tick so the button state updates before heavy computation
+  setTimeout(() => {
+    const result = findOptimalLines(_tradeData);
+    optimizeBtn.disabled = false;
+    optimizeBtn.textContent = '最优策略';
+    if (!result) {
+      showMessage('未找到有效的买卖组合', true);
+      return;
+    }
+    updateTradeLines(result.buyPrice, result.sellPrice);
+  }, 20);
 }
 
 function renderTradeStats(signals) {
@@ -226,19 +297,26 @@ function updateTradeLines(buyPrice, sellPrice) {
 
 function onTradeRelayout(eventData) {
   if (_suppressRelayout) return;
+
+  // Respond to ANY shape key change (y-drag OR x-drag that shortens the line)
+  const shapeKeys = Object.keys(eventData).filter((k) => k.startsWith('shapes['));
+  if (shapeKeys.length === 0) return;
+
   let newBuy = _buyPrice;
   let newSell = _sellPrice;
-  let changed = false;
 
-  if ('shapes[0].y0' in eventData || 'shapes[0].y1' in eventData) {
-    const raw = eventData['shapes[0].y0'] != null ? eventData['shapes[0].y0'] : eventData['shapes[0].y1'];
-    if (raw != null) { newBuy = raw; changed = true; }
+  for (const key of shapeKeys) {
+    const val = eventData[key];
+    if (val == null) continue;
+    if (key.startsWith('shapes[0]') && (key.endsWith('.y0') || key.endsWith('.y1'))) {
+      newBuy = val;
+    }
+    if (key.startsWith('shapes[1]') && (key.endsWith('.y0') || key.endsWith('.y1'))) {
+      newSell = val;
+    }
   }
-  if ('shapes[1].y0' in eventData || 'shapes[1].y1' in eventData) {
-    const raw = eventData['shapes[1].y0'] != null ? eventData['shapes[1].y0'] : eventData['shapes[1].y1'];
-    if (raw != null) { newSell = raw; changed = true; }
-  }
-  if (changed) updateTradeLines(newBuy, newSell);
+  // Always call updateTradeLines: restores full-width x0/x1 even after horizontal drag
+  updateTradeLines(newBuy, newSell);
 }
 
 toggleMa5.addEventListener('change', () => {
@@ -430,6 +508,7 @@ async function onSubmit(event) {
       `查询成功：${result.market_label} ${titleName}${result.code}，共 ${result.rows} 条数据（来源：${result.source_label}）`
     );
     await refreshCacheOptions(result.code);
+    localStorage.setItem('lastCode', result.code);
   } catch (error) {
     Plotly.purge(chartContainer);
     tradeControls.classList.remove('visible');
@@ -483,5 +562,11 @@ sellLineInput.addEventListener('change', () => {
   if (!isNaN(v) && v > 0 && _tradeData) updateTradeLines(_buyPrice, v);
 });
 
+optimizeBtn.addEventListener('click', optimizeBtnHandler);
+
 setManualMode(true);
-refreshCacheOptions('manual');
+const _lastCode = localStorage.getItem('lastCode');
+if (_lastCode) {
+  codeInput.value = _lastCode;
+}
+refreshCacheOptions(_lastCode || 'manual');

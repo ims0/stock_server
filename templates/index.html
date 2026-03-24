@@ -61,7 +61,7 @@
       <div id="ma-controls" class="ma-controls">
         <span class="ma-controls-label">均线：</span>
         <label class="ma-toggle"><input type="checkbox" id="toggle-ma5" checked /><span style="color:#f59e0b;">MA5</span></label>
-        <label class="ma-toggle"><input type="checkbox" id="toggle-ma10" checked /><span style="color:#3b82f6;">MA10</span></label>
+        <label class="ma-toggle"><input type="checkbox" id="toggle-ma10" /><span style="color:#3b82f6;">MA10</span></label>
       </div>
       <div id="trade-controls" class="trade-controls">
         <span class="trade-controls-label">交易模拟：</span>
@@ -74,6 +74,7 @@
           <input type="number" id="sell-line-input" step="0.1" min="0" />
         </label>
         <div id="trade-stats" class="trade-stats"></div>
+        <button type="button" id="optimize-btn" class="link-button ghost">最优策略</button>
       </div>
       <div id="chart" class="chart"></div>
     </main>
