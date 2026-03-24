@@ -1349,6 +1349,13 @@ def _execute_kline_query(
     if final_source == "cache":
         final_source_label = "本地缓存"
 
+    records = data.to_dict(orient="records")
+    # NaN is not valid JSON; convert float NaN to None (→ JSON null)
+    for row in records:
+        for key, val in row.items():
+            if isinstance(val, float) and val != val:
+                row[key] = None
+
     return (
         {
             "market": market,
@@ -1361,7 +1368,7 @@ def _execute_kline_query(
             "source": final_source,
             "source_label": final_source_label,
             "progress": progress,
-            "data": data.to_dict(orient="records"),
+            "data": records,
         },
         200,
     )
@@ -1390,14 +1397,18 @@ def kline_stream_api():
         queue.put(("progress", message))
 
     def worker() -> None:
-        payload, status_code = _execute_kline_query(
-            code,
-            start_date,
-            end_date,
-            source,
-            progress_callback=push_progress,
-        )
-        queue.put(("result", json.dumps({"status": status_code, "payload": payload}, ensure_ascii=False)))
+        try:
+            payload, status_code = _execute_kline_query(
+                code,
+                start_date,
+                end_date,
+                source,
+                progress_callback=push_progress,
+            )
+            result_str = json.dumps({"status": status_code, "payload": payload}, ensure_ascii=False)
+        except Exception as exc:
+            result_str = json.dumps({"status": 500, "payload": {"error": f"内部错误: {exc}"}}, ensure_ascii=False)
+        queue.put(("result", result_str))
 
     Thread(target=worker, daemon=True).start()
 

@@ -3,6 +3,10 @@
 ## 启动
 
 ```bash
+python3 -m venv venv
+# 激活虚拟环境（关键！激活后命令行开头会显示 (venv)）
+source venv/bin/activate
+
 python3 -m pip install -r requirements.txt
 python3 app.py
 ```
