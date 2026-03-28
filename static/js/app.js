@@ -144,8 +144,9 @@ function buildCandlestick(data, title, market) {
     low,
     close,
     type: 'candlestick',
-    increasing: { line: { color: '#ef4444' }, fillcolor: 'rgba(255,255,255,0)' },
-    decreasing: { line: { color: '#22c55e' } },
+    whiskerwidth: 0,
+    increasing: { line: { color: '#ef4444', width: 0.8 }, fillcolor: 'rgba(255,255,255,0)' },
+    decreasing: { line: { color: '#22c55e', width: 0.8 }, fillcolor: 'rgba(255,255,255,0)' },
     name: 'K线',
   };
 
