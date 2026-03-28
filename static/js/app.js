@@ -30,6 +30,28 @@ let _tradeData = null;
 let _buyPrice = null;
 let _sellPrice = null;
 let _suppressRelayout = false;
+let _currentMarket = 'a';
+let _feeConfig = null;
+
+async function loadFeeConfig() {
+  try {
+    const resp = await fetch('/api/fees');
+    if (resp.ok) {
+      _feeConfig = await resp.json();
+    }
+  } catch (_) {
+    _feeConfig = null;
+  }
+}
+
+function getActiveFees() {
+  return (_feeConfig && _currentMarket && _feeConfig[_currentMarket]) || null;
+}
+
+function calcTotalFeeRate(feeItems) {
+  if (!feeItems || feeItems.length === 0) return 0;
+  return feeItems.reduce((s, f) => s + (f.rate || 0), 0);
+}
 
 function showMessage(text, isError = false) {
   messageEl.textContent = text;
@@ -55,7 +77,48 @@ function movingAverage(values, windowSize) {
   return result;
 }
 
-function buildCandlestick(data, title) {
+const feeInfoEl = document.getElementById('fee-info');
+
+function renderFeeInfo() {
+  if (!feeInfoEl) return;
+  const fees = getActiveFees();
+  if (!fees) { feeInfoEl.innerHTML = ''; return; }
+
+  const bfr = calcTotalFeeRate(fees.buy);
+  const sfr = calcTotalFeeRate(fees.sell);
+  const mktLabel = _currentMarket === 'a' ? 'A股' : '港股通';
+
+  const buildRows = (items) => items.map((f) => {
+    const limits = [
+      f.min_amount != null ? `最低 ${f.min_amount}` : '',
+      f.max_amount != null ? `最高 ${f.max_amount}` : '',
+    ].filter(Boolean).join('，');
+    return `<li><span class="fee-item-name">${f.name}</span>`
+      + `<span class="fee-item-rate">${(f.rate * 100).toFixed(4)}%</span>`
+      + (limits ? `<span class="fee-item-note">${limits}</span>` : '')
+      + `</li>`;
+  }).join('');
+
+  feeInfoEl.innerHTML = `
+    <details class="fee-details">
+      <summary class="fee-summary">
+        ${mktLabel} 交易成本：买入共 <strong>${(bfr * 100).toFixed(3)}%</strong>，卖出共 <strong>${(sfr * 100).toFixed(3)}%</strong>（单边）&ensp;▾明细
+      </summary>
+      <div class="fee-detail-body">
+        <div class="fee-col">
+          <div class="fee-col-title">买入费用</div>
+          <ul class="fee-list">${buildRows(fees.buy)}</ul>
+        </div>
+        <div class="fee-col">
+          <div class="fee-col-title">卖出费用</div>
+          <ul class="fee-list">${buildRows(fees.sell)}</ul>
+        </div>
+      </div>
+    </details>`;
+}
+
+function buildCandlestick(data, title, market) {
+  _currentMarket = market || 'a';
   _tradeData = data;
 
   // Initialize trade lines at median ±5%
@@ -170,6 +233,7 @@ function buildCandlestick(data, title) {
   buyLineInput.value = _buyPrice.toFixed(1);
   sellLineInput.value = _sellPrice.toFixed(1);
   renderTradeStats(signals);
+  renderFeeInfo();
 
   // Re-register each time the chart is rebuilt
   chartContainer.removeAllListeners('plotly_relayout');
@@ -228,6 +292,11 @@ function findOptimalLines(data) {
   let bestSell = null;
   let bestMultiplier = -Infinity;
 
+  // Use fee-adjusted multiplier so the optimal pair accounts for real costs
+  const fees = getActiveFees();
+  const bfr = fees ? calcTotalFeeRate(fees.buy) : 0;
+  const sfr = fees ? calcTotalFeeRate(fees.sell) : 0;
+
   for (let bi = 0; bi < candidates.length; bi += 1) {
     const bp = candidates[bi];
     for (let si = bi + 1; si < candidates.length; si += 1) {
@@ -237,7 +306,7 @@ function findOptimalLines(data) {
       if (sells === 0) continue;
       let fund = 1;
       for (let k = 0; k < sells; k += 1) {
-        fund *= signals.sellPrices[k] / signals.buyPrices[k];
+        fund *= (signals.sellPrices[k] * (1 - sfr)) / (signals.buyPrices[k] * (1 + bfr));
       }
       if (fund > bestMultiplier) {
         bestMultiplier = fund;
@@ -270,16 +339,25 @@ function optimizeBtnHandler() {
 function renderTradeStats(signals) {
   const buys = signals.buyDates.length;
   const sells = signals.sellDates.length;
+  const fees = getActiveFees();
+  const bfr = fees ? calcTotalFeeRate(fees.buy) : 0;
+  const sfr = fees ? calcTotalFeeRate(fees.sell) : 0;
+
   let fund = 100;
   for (let i = 0; i < sells; i += 1) {
-    fund *= signals.sellPrices[i] / signals.buyPrices[i];
+    // 含费用：实际成本 = 买入价 × (1 + 买入费率)，实际收益 = 卖出价 × (1 − 卖出费率)
+    fund *= (signals.sellPrices[i] * (1 - sfr)) / (signals.buyPrices[i] * (1 + bfr));
   }
   const multiplier = fund / 100;
   const cls = multiplier >= 1 ? 'profit' : 'loss';
+  const feeTag = fees
+    ? `<span class="fee-tag">含费 买${(bfr * 100).toFixed(3)}%+卖${(sfr * 100).toFixed(3)}%/笔</span>`
+    : '';
   tradeStatsEl.innerHTML =
     `<span>买入 <strong>${buys}</strong> 次</span>` +
     `<span>卖出 <strong>${sells}</strong> 次</span>` +
-    `<span>资金 <strong class="${cls}">${multiplier.toFixed(2)}x</strong></span>`;
+    `<span>资金 <strong class="${cls}">${multiplier.toFixed(2)}x</strong></span>` +
+    feeTag;
 }
 
 function updateTradeLines(buyPrice, sellPrice) {
@@ -526,7 +604,7 @@ async function onSubmit(event) {
       showMessage(step);
     });
     const titleName = result.name ? `${result.name} ` : '';
-    buildCandlestick(result.data, `${result.market_label} ${titleName}${result.code} K线图`);
+    buildCandlestick(result.data, `${result.market_label} ${titleName}${result.code} K线图`, result.market);
     renderQueryProgress(result.progress || []);
     showMessage(
       `查询成功：${result.market_label} ${titleName}${result.code}，共 ${result.rows} 条数据（来源：${result.source_label}）`
@@ -599,3 +677,4 @@ if (_lastCode) {
   codeInput.value = _lastCode;
 }
 refreshCacheOptions(_lastCode || 'manual');
+loadFeeConfig();

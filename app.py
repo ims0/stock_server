@@ -17,6 +17,8 @@ import tushare as ts
 import yfinance as yf
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
+from config import TRADE_FEES
+
 app = Flask(__name__)
 
 DB_PATH = os.path.join(app.root_path, "data", "stock_cache.db")
@@ -1455,6 +1457,12 @@ def kline_stream_api():
     response.headers["Cache-Control"] = "no-cache"
     response.headers["X-Accel-Buffering"] = "no"
     return response
+
+
+@app.get("/api/fees")
+def fees_api():
+    """返回各市场交易费用配置，供前端展示及计算成本用。"""
+    return jsonify(TRADE_FEES)
 
 
 @app.get("/api/cache/summary")
