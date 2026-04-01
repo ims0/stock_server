@@ -369,3 +369,54 @@ button {
   padding: 2px 6px;
   align-self: center;
 }
+
+/* ── 策略对比表格 ───────────────────────────────── */
+.strategy-table {
+  margin-bottom: 8px;
+}
+
+.strat-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+.strat-table th,
+.strat-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.strat-table th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+}
+
+.strat-table tr:last-child td {
+  border-bottom: none;
+}
+
+.strat-name {
+  font-weight: 700;
+  color: #111827;
+}
+
+.strat-sub {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.strat-config {
+  line-height: 1.8;
+}
+
+.small-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}

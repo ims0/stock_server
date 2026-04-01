@@ -78,6 +78,7 @@ function movingAverage(values, windowSize) {
 }
 
 const feeInfoEl = document.getElementById('fee-info');
+const strategyTableEl = document.getElementById('strategy-table');
 
 function renderFeeInfo() {
   if (!feeInfoEl) return;
@@ -120,6 +121,7 @@ function renderFeeInfo() {
 function buildCandlestick(data, title, market) {
   _currentMarket = market || 'a';
   _tradeData = data;
+  if (strategyTableEl) strategyTableEl.innerHTML = '';
 
   // Initialize trade lines at median ±5%
   const validCloses = data.filter((r) => r.close != null).map((r) => r.close);
@@ -320,20 +322,170 @@ function findOptimalLines(data) {
   return bestBuy !== null ? { buyPrice: bestBuy, sellPrice: bestSell, multiplier: bestMultiplier } : null;
 }
 
+function calcPairStats(data, buyPrice, sellPrice) {
+  const signals = calcTradeSignals(data, buyPrice, sellPrice);
+  const fees = getActiveFees();
+  const bfr = fees ? calcTotalFeeRate(fees.buy) : 0;
+  const sfr = fees ? calcTotalFeeRate(fees.sell) : 0;
+  const sells = signals.sellPrices.length;
+  let fund = 1.0;
+  for (let k = 0; k < sells; k += 1) {
+    fund *= (signals.sellPrices[k] * (1 - sfr)) / (signals.buyPrices[k] * (1 + bfr));
+  }
+  return { buyCount: signals.buyDates.length, sellCount: sells, mult: fund };
+}
+
+function findOptimalStrategy2(data) {
+  const tradingRows = data.filter((r) => r.is_open && r.low != null && r.high != null);
+  if (tradingRows.length === 0) return null;
+
+  const rawLevels = [];
+  for (const r of tradingRows) rawLevels.push(r.low, r.high);
+  const allLevels = [...new Set(rawLevels.map((v) => Math.round(v * 10) / 10))].sort((a, b) => a - b);
+
+  const MAX = 40;
+  let candidates = allLevels;
+  if (allLevels.length > MAX) {
+    const step = (allLevels.length - 1) / (MAX - 1);
+    candidates = Array.from({ length: MAX }, (_, i) => allLevels[Math.round(i * step)]);
+  }
+
+  const fees = getActiveFees();
+  const bfr = fees ? calcTotalFeeRate(fees.buy) : 0;
+  const sfr = fees ? calcTotalFeeRate(fees.sell) : 0;
+  const n = candidates.length;
+
+  // 预计算所有 (buy, sell) 对的资金倍数
+  const pm = [];
+  for (let i = 0; i < n; i += 1) pm.push(new Float64Array(n).fill(1.0));
+  for (let bi = 0; bi < n; bi += 1) {
+    for (let si = bi + 1; si < n; si += 1) {
+      const signals = calcTradeSignals(data, candidates[bi], candidates[si]);
+      const sells = signals.sellPrices.length;
+      if (sells === 0) continue;
+      let fund = 1.0;
+      for (let k = 0; k < sells; k += 1) {
+        fund *= (signals.sellPrices[k] * (1 - sfr)) / (signals.buyPrices[k] * (1 + bfr));
+      }
+      pm[bi][si] = fund;
+    }
+  }
+
+  let bestTotal = -Infinity;
+  let bestPairs = null;
+
+  for (let b1i = 0; b1i < n; b1i += 1) {
+    for (let b2i = b1i + 1; b2i < n; b2i += 1) {
+      if (candidates[b2i] - candidates[b1i] < 3) continue;
+      for (let s1i = 0; s1i < n; s1i += 1) {
+        if (candidates[s1i] <= candidates[b2i]) continue; // 卖出必须高于所有买入线
+        for (let s2i = s1i + 1; s2i < n; s2i += 1) {
+          if (candidates[s2i] - candidates[s1i] < 3) continue;
+          // 方案A：组1=(b1,s1) 组2=(b2,s2)
+          const tA = 0.5 * pm[b1i][s1i] + 0.5 * pm[b2i][s2i];
+          // 方案B：组1=(b1,s2) 组2=(b2,s1)
+          const tB = 0.5 * pm[b1i][s2i] + 0.5 * pm[b2i][s1i];
+          if (tA > bestTotal) {
+            bestTotal = tA;
+            bestPairs = [
+              { buy: candidates[b1i], sell: candidates[s1i], mult: pm[b1i][s1i] },
+              { buy: candidates[b2i], sell: candidates[s2i], mult: pm[b2i][s2i] },
+            ];
+          }
+          if (tB > bestTotal) {
+            bestTotal = tB;
+            bestPairs = [
+              { buy: candidates[b1i], sell: candidates[s2i], mult: pm[b1i][s2i] },
+              { buy: candidates[b2i], sell: candidates[s1i], mult: pm[b2i][s1i] },
+            ];
+          }
+        }
+      }
+    }
+  }
+
+  if (!bestPairs) return null;
+  return {
+    total: bestTotal,
+    pairs: bestPairs.map((p) => ({ ...p, ...calcPairStats(data, p.buy, p.sell) })),
+  };
+}
+
+function renderStrategyTable(s1Result, s2Result) {
+  if (!strategyTableEl) return;
+  if (!s1Result && !s2Result) { strategyTableEl.innerHTML = ''; return; }
+
+  const makeRow = (label, sub, configHtml, tradesHtml, mult, applyId) => {
+    const cls = mult >= 1 ? 'profit' : 'loss';
+    const applyCell = applyId
+      ? `<button class="link-button ghost small-btn" id="${applyId}">应用到图</button>`
+      : '—';
+    return `<tr>
+      <td><span class="strat-name">${label}</span><br><span class="strat-sub">${sub}</span></td>
+      <td class="strat-config">${configHtml}</td>
+      <td>${tradesHtml}</td>
+      <td><strong class="${cls}">${mult.toFixed(3)}x</strong></td>
+      <td>${applyCell}</td>
+    </tr>`;
+  };
+
+  let rows = '';
+  if (s1Result) {
+    rows += makeRow(
+      '策略1', '固定买卖点',
+      `买&ensp;<strong>${s1Result.buyPrice.toFixed(1)}</strong>&emsp;卖&ensp;<strong>${s1Result.sellPrice.toFixed(1)}</strong>`,
+      `${s1Result.buyCount}买 / ${s1Result.sellCount}卖`,
+      s1Result.multiplier,
+      'apply-s1-btn',
+    );
+  }
+
+  if (s2Result) {
+    const pairHtml = s2Result.pairs.map((p, i) => {
+      const pcls = p.mult >= 1 ? 'profit' : 'loss';
+      return `组${i + 1}：买&ensp;<strong>${p.buy.toFixed(1)}</strong>&emsp;卖&ensp;<strong>${p.sell.toFixed(1)}</strong>`
+        + `&ensp;<span class="strat-sub">(${p.buyCount}买/${p.sellCount}卖&ensp;<span class="${pcls}">${p.mult.toFixed(3)}x</span>)</span>`;
+    }).join('<br>');
+    rows += makeRow(
+      '策略2', '双线网格（各0.5仓）',
+      pairHtml,
+      '各组独立',
+      s2Result.total,
+      null,
+    );
+  }
+
+  strategyTableEl.innerHTML = `
+    <table class="strat-table">
+      <thead><tr><th>策略</th><th>参数</th><th>交易次数</th><th>资金倍数</th><th>操作</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  const applyBtn = document.getElementById('apply-s1-btn');
+  if (applyBtn && s1Result) {
+    applyBtn.addEventListener('click', () => updateTradeLines(s1Result.buyPrice, s1Result.sellPrice));
+  }
+}
+
 function optimizeBtnHandler() {
   if (!_tradeData) return;
   optimizeBtn.disabled = true;
   optimizeBtn.textContent = '计算中…';
-  // Defer to next tick so the button state updates before heavy computation
   setTimeout(() => {
-    const result = findOptimalLines(_tradeData);
+    const s1 = findOptimalLines(_tradeData);
+    if (s1) {
+      const stats = calcPairStats(_tradeData, s1.buyPrice, s1.sellPrice);
+      s1.buyCount = stats.buyCount;
+      s1.sellCount = stats.sellCount;
+      updateTradeLines(s1.buyPrice, s1.sellPrice);
+    }
+    const s2 = findOptimalStrategy2(_tradeData);
     optimizeBtn.disabled = false;
     optimizeBtn.textContent = '最优策略';
-    if (!result) {
+    if (!s1 && !s2) {
       showMessage('未找到有效的买卖组合', true);
       return;
     }
-    updateTradeLines(result.buyPrice, result.sellPrice);
+    renderStrategyTable(s1, s2);
   }, 20);
 }
 
@@ -615,6 +767,7 @@ async function onSubmit(event) {
   } catch (error) {
     Plotly.purge(chartContainer);
     tradeControls.classList.remove('visible');
+    if (strategyTableEl) strategyTableEl.innerHTML = '';
     renderQueryProgress(error.progress || []);
     showMessage(error.message, true);
   }
