@@ -12,6 +12,7 @@ const tradeControls = document.getElementById('trade-controls');
 const buyLineInput = document.getElementById('buy-line-input');
 const sellLineInput = document.getElementById('sell-line-input');
 const tradeStatsEl = document.getElementById('trade-stats');
+const gridStepInput = document.getElementById('grid-step-input');
 const optimizeBtn = document.getElementById('optimize-btn');
 const datePreset = document.getElementById('date-preset');
 
@@ -411,9 +412,108 @@ function findOptimalStrategy2(data) {
   };
 }
 
-function renderStrategyTable(s1Result, s2Result) {
+function calcGridStrategy3(data, stepSize) {
+  const tradingRows = data.filter((r) => r.is_open && r.low != null && r.high != null && r.close != null);
+  if (tradingRows.length < 2) return null;
+
+  const minLow = Math.min(...tradingRows.map((r) => r.low));
+  const maxHigh = Math.max(...tradingRows.map((r) => r.high));
+  const amplitude = maxHigh - minLow;
+  if (amplitude <= 0 || stepSize <= 0) return null;
+
+  const N = Math.max(1, Math.floor(amplitude / stepSize));
+  const step = amplitude / N;
+
+  // Grid levels: L[0]=minLow, L[1]=minLow+step, ..., L[N]=maxHigh
+  const levels = Array.from({ length: N + 1 }, (_, i) => minLow + i * step);
+
+  const fees = getActiveFees();
+  const bfr = fees ? calcTotalFeeRate(fees.buy) : 0;
+  const sfr = fees ? calcTotalFeeRate(fees.sell) : 0;
+
+  const perSlotCapital = 1.0 / N;
+  let cash = 1.0;
+  let shares = 0;
+  // slotShares[i]: shares currently held for slot i (0 = empty)
+  const slotShares = new Float64Array(N);
+
+  const buyDates = [];
+  const buyPrices = [];
+  const sellDates = [];
+  const sellPrices = [];
+
+  for (const row of tradingRows) {
+    // ── Buy triggers (price falling to grid level) ─────────────────
+    for (let i = 0; i < N; i += 1) {
+      const buyLevel = levels[i];
+      if (row.low > buyLevel) continue; // level not reached
+      if (slotShares[i] > 0) continue;  // slot already filled
+
+      // At the bottom level (i===0), use all remaining cash; otherwise use 1/N
+      const spend = (i === 0 && cash > perSlotCapital) ? cash : Math.min(perSlotCapital, cash);
+      if (spend < 1e-10) continue;
+
+      // Execute price: if whole candle is below the level, we still buy at day-high
+      const execPrice = Math.min(buyLevel, row.high);
+      const acquired = spend / (execPrice * (1 + bfr));
+      slotShares[i] = acquired;
+      cash -= spend;
+      shares += acquired;
+      buyDates.push(row.date);
+      buyPrices.push(execPrice);
+    }
+
+    // ── Sell triggers (price rising to next grid level) ────────────
+    // If price hits the absolute maximum, sell everything at once
+    if (row.high >= levels[N] && shares > 0) {
+      const execPrice = Math.max(levels[N], row.low);
+      cash += shares * execPrice * (1 - sfr);
+      for (let i = 0; i < N; i += 1) slotShares[i] = 0;
+      shares = 0;
+      sellDates.push(row.date);
+      sellPrices.push(execPrice);
+    } else {
+      for (let i = 0; i < N; i += 1) {
+        const sellLevel = levels[i + 1];
+        if (row.high < sellLevel) continue; // level not reached
+        if (slotShares[i] <= 0) continue;   // nothing to sell in this slot
+
+        const execPrice = Math.max(sellLevel, row.low);
+        cash += slotShares[i] * execPrice * (1 - sfr);
+        shares -= slotShares[i];
+        slotShares[i] = 0;
+        sellDates.push(row.date);
+        sellPrices.push(execPrice);
+      }
+    }
+  }
+
+  // Liquidate any remaining position at the last close price
+  if (shares > 1e-10) {
+    const lastClose = tradingRows[tradingRows.length - 1].close;
+    cash += shares * lastClose * (1 - sfr);
+    shares = 0;
+  }
+
+  return {
+    N,
+    step,
+    amplitude,
+    minPrice: minLow,
+    maxPrice: maxHigh,
+    finalFund: cash,
+    buyCount: buyDates.length,
+    sellCount: sellDates.length,
+    buyDates,
+    buyPrices,
+    sellDates,
+    sellPrices,
+  };
+}
+
+function renderStrategyTable(s1Result, s2Result, s3Result) {
   if (!strategyTableEl) return;
-  if (!s1Result && !s2Result) { strategyTableEl.innerHTML = ''; return; }
+  if (!s1Result && !s2Result && !s3Result) { strategyTableEl.innerHTML = ''; return; }
 
   const makeRow = (label, sub, configHtml, tradesHtml, mult, applyId) => {
     const cls = mult >= 1 ? 'profit' : 'loss';
@@ -455,6 +555,17 @@ function renderStrategyTable(s1Result, s2Result) {
     );
   }
 
+  if (s3Result) {
+    rows += makeRow(
+      '策略3', '均匀网格（逐步建仓）',
+      `幅度 ${s3Result.amplitude.toFixed(2)}，步长 ${s3Result.step.toFixed(2)}，N=${s3Result.N}`
+        + `<br><span class="strat-sub">区间 ${s3Result.minPrice.toFixed(2)} ~ ${s3Result.maxPrice.toFixed(2)}</span>`,
+      `${s3Result.buyCount}买 / ${s3Result.sellCount}卖`,
+      s3Result.finalFund,
+      'apply-s3-btn',
+    );
+  }
+
   strategyTableEl.innerHTML = `
     <table class="strat-table">
       <thead><tr><th>策略</th><th>参数</th><th>交易次数</th><th>资金倍数</th><th>操作</th></tr></thead>
@@ -463,6 +574,13 @@ function renderStrategyTable(s1Result, s2Result) {
   const applyBtn = document.getElementById('apply-s1-btn');
   if (applyBtn && s1Result) {
     applyBtn.addEventListener('click', () => updateTradeLines(s1Result.buyPrice, s1Result.sellPrice));
+  }
+  const applyS3Btn = document.getElementById('apply-s3-btn');
+  if (applyS3Btn && s3Result) {
+    applyS3Btn.addEventListener('click', () => {
+      Plotly.restyle(chartContainer, { x: [s3Result.buyDates], y: [s3Result.buyPrices] }, [3]);
+      Plotly.restyle(chartContainer, { x: [s3Result.sellDates], y: [s3Result.sellPrices] }, [4]);
+    });
   }
 }
 
@@ -479,13 +597,15 @@ function optimizeBtnHandler() {
       updateTradeLines(s1.buyPrice, s1.sellPrice);
     }
     const s2 = findOptimalStrategy2(_tradeData);
+    const stepSize = parseFloat(gridStepInput ? gridStepInput.value : 3) || 3;
+    const s3 = calcGridStrategy3(_tradeData, stepSize);
     optimizeBtn.disabled = false;
     optimizeBtn.textContent = '最优策略';
-    if (!s1 && !s2) {
+    if (!s1 && !s2 && !s3) {
       showMessage('未找到有效的买卖组合', true);
       return;
     }
-    renderStrategyTable(s1, s2);
+    renderStrategyTable(s1, s2, s3);
   }, 20);
 }
 
