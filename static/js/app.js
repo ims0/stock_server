@@ -511,9 +511,100 @@ function calcGridStrategy3(data, stepSize) {
   };
 }
 
-function renderStrategyTable(s1Result, s2Result, s3Result) {
+function calcGridStrategy4(data, stepSize) {
+  const tradingRows = data.filter((r) => r.is_open && r.low != null && r.high != null && r.close != null);
+  if (tradingRows.length < 2) return null;
+
+  const minLow = Math.min(...tradingRows.map((r) => r.low));
+  const maxHigh = Math.max(...tradingRows.map((r) => r.high));
+  const amplitude = maxHigh - minLow;
+  if (amplitude <= 0 || stepSize <= 0) return null;
+
+  const halfAmp = amplitude / 2;
+  const midline = (minLow + maxHigh) / 2;
+  const N = Math.max(1, Math.floor(halfAmp / stepSize));
+  const step = halfAmp / N;
+
+  // buyLevels[k]  = midline - (k+1)*step  (k=0..N-1), buyLevels[N-1] ≈ minLow
+  // sellLevels[k] = midline + (k+1)*step  (k=0..N-1), sellLevels[N-1] ≈ maxHigh
+  // Slot k: buy at buyLevels[k], sell at sellLevels[k] (symmetric around midline)
+  const buyLevels  = Array.from({ length: N }, (_, k) => midline - (k + 1) * step);
+  const sellLevels = Array.from({ length: N }, (_, k) => midline + (k + 1) * step);
+
+  const fees = getActiveFees();
+  const bfr = fees ? calcTotalFeeRate(fees.buy) : 0;
+  const sfr = fees ? calcTotalFeeRate(fees.sell) : 0;
+
+  const perSlotCapital = 1.0 / N;
+  let cash = 1.0;
+  let shares = 0;
+  const slotShares = new Float64Array(N);
+
+  const buyDates = [];
+  const buyPrices = [];
+  const sellDates = [];
+  const sellPrices = [];
+
+  for (const row of tradingRows) {
+    // ── Buy: price falls to each buy level below midline ───────────
+    for (let k = 0; k < N; k += 1) {
+      if (row.low > buyLevels[k]) continue;
+      if (slotShares[k] > 0) continue;
+
+      // At the deepest level (k===N-1), use all remaining cash
+      const spend = (k === N - 1 && cash > perSlotCapital) ? cash : Math.min(perSlotCapital, cash);
+      if (spend < 1e-10) continue;
+
+      const execPrice = Math.min(buyLevels[k], row.high);
+      slotShares[k] = spend / (execPrice * (1 + bfr));
+      cash -= spend;
+      shares += slotShares[k];
+      buyDates.push(row.date);
+      buyPrices.push(execPrice);
+    }
+
+    // ── Sell: price rises to each symmetric sell level above midline
+    for (let k = 0; k < N; k += 1) {
+      if (row.high < sellLevels[k]) continue;
+      if (slotShares[k] <= 0) continue;
+
+      const execPrice = Math.max(sellLevels[k], row.low);
+      cash += slotShares[k] * execPrice * (1 - sfr);
+      shares -= slotShares[k];
+      slotShares[k] = 0;
+      sellDates.push(row.date);
+      sellPrices.push(execPrice);
+    }
+  }
+
+  // Liquidate any remaining position at last close
+  if (shares > 1e-10) {
+    const lastClose = tradingRows[tradingRows.length - 1].close;
+    cash += shares * lastClose * (1 - sfr);
+    shares = 0;
+  }
+
+  return {
+    N,
+    step,
+    amplitude,
+    halfAmp,
+    midline,
+    minPrice: minLow,
+    maxPrice: maxHigh,
+    finalFund: cash,
+    buyCount: buyDates.length,
+    sellCount: sellDates.length,
+    buyDates,
+    buyPrices,
+    sellDates,
+    sellPrices,
+  };
+}
+
+function renderStrategyTable(s1Result, s2Result, s3Result, s4Result) {
   if (!strategyTableEl) return;
-  if (!s1Result && !s2Result && !s3Result) { strategyTableEl.innerHTML = ''; return; }
+  if (!s1Result && !s2Result && !s3Result && !s4Result) { strategyTableEl.innerHTML = ''; return; }
 
   const makeRow = (label, sub, configHtml, tradesHtml, mult, applyId) => {
     const cls = mult >= 1 ? 'profit' : 'loss';
@@ -566,6 +657,18 @@ function renderStrategyTable(s1Result, s2Result, s3Result) {
     );
   }
 
+  if (s4Result) {
+    rows += makeRow(
+      '策略4', '中线对称网格',
+      `幅度 ${s4Result.amplitude.toFixed(2)}，中线 ${s4Result.midline.toFixed(2)}，步长 ${s4Result.step.toFixed(2)}，N=${s4Result.N}`
+        + `<br><span class="strat-sub">买入区 ${s4Result.minPrice.toFixed(2)} ~ ${s4Result.midline.toFixed(2)}`
+        + `&ensp;卖出区 ${s4Result.midline.toFixed(2)} ~ ${s4Result.maxPrice.toFixed(2)}</span>`,
+      `${s4Result.buyCount}买 / ${s4Result.sellCount}卖`,
+      s4Result.finalFund,
+      'apply-s4-btn',
+    );
+  }
+
   strategyTableEl.innerHTML = `
     <table class="strat-table">
       <thead><tr><th>策略</th><th>参数</th><th>交易次数</th><th>资金倍数</th><th>操作</th></tr></thead>
@@ -580,6 +683,13 @@ function renderStrategyTable(s1Result, s2Result, s3Result) {
     applyS3Btn.addEventListener('click', () => {
       Plotly.restyle(chartContainer, { x: [s3Result.buyDates], y: [s3Result.buyPrices] }, [3]);
       Plotly.restyle(chartContainer, { x: [s3Result.sellDates], y: [s3Result.sellPrices] }, [4]);
+    });
+  }
+  const applyS4Btn = document.getElementById('apply-s4-btn');
+  if (applyS4Btn && s4Result) {
+    applyS4Btn.addEventListener('click', () => {
+      Plotly.restyle(chartContainer, { x: [s4Result.buyDates], y: [s4Result.buyPrices] }, [3]);
+      Plotly.restyle(chartContainer, { x: [s4Result.sellDates], y: [s4Result.sellPrices] }, [4]);
     });
   }
 }
@@ -599,13 +709,14 @@ function optimizeBtnHandler() {
     const s2 = findOptimalStrategy2(_tradeData);
     const stepSize = parseFloat(gridStepInput ? gridStepInput.value : 3) || 3;
     const s3 = calcGridStrategy3(_tradeData, stepSize);
+    const s4 = calcGridStrategy4(_tradeData, stepSize);
     optimizeBtn.disabled = false;
     optimizeBtn.textContent = '最优策略';
-    if (!s1 && !s2 && !s3) {
+    if (!s1 && !s2 && !s3 && !s4) {
       showMessage('未找到有效的买卖组合', true);
       return;
     }
-    renderStrategyTable(s1, s2, s3);
+    renderStrategyTable(s1, s2, s3, s4);
   }, 20);
 }
 
