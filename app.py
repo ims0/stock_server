@@ -241,6 +241,172 @@ def _ensure_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_non_trading_lookup ON non_trading_cache (market, code, date)"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auto_sales_cache (
+                manufacturer TEXT NOT NULL,
+                month TEXT NOT NULL,
+                sales INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (manufacturer, month)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_auto_sales_lookup ON auto_sales_cache (manufacturer, month)"
+        )
+
+
+# ── 汽车股映射：股票代码 → gasgoo 车企榜厂商名 ────────────────────────────
+AUTO_STOCK_MAP: dict[str, str] = {
+    # A股
+    "600104": "上汽集团",
+    "000625": "长安汽车",
+    "601238": "广汽集团",
+    "000002": "比亚迪",       # 同花顺有时这样映射，以 002594 为准
+    "002594": "比亚迪汽车",
+    "601633": "长城汽车",
+    "000550": "江铃汽车",
+    "600166": "福田汽车",
+    "000800": "一汽轿车",
+    "600006": "东风汽车",
+    "600418": "江淮汽车",
+    "000572": "海马汽车",
+    "600812": "华北制药",    # 剔除非汽车
+    "002001": "新纶科技",
+    "601777": "力帆科技",
+    "600007": "中国国贸",
+    "300750": "宁德时代",     # 动力电池
+    "002475": "立讯精密",
+    "600570": "恒生电子",
+    # 港股
+    "00175": "吉利汽车",
+    "02238": "广汽集团",
+    "01958": "北京汽车",
+    "00489": "东风集团",
+    "01122": "庆铃汽车",
+    "00305": "五菱汽车",
+}
+
+# 更精确的核心映射（代码→厂商名，厂商名需与 gasgoo 车企榜"厂商"列精确匹配）
+AUTO_CORE_MAP: dict[str, str] = {
+    "600104": "上汽集团",
+    "000625": "长安汽车",
+    "601238": "广汽乘用车",
+    "002594": "比亚迪汽车",
+    "601633": "长城汽车",
+    "000550": "江铃汽车",
+    "600166": "福田汽车",
+    "000800": "一汽解放",
+    "600006": "东风汽车",
+    "600418": "江淮汽车",
+    "00175": "吉利汽车",
+    "02238": "广汽集团",
+    "01958": "北京汽车",
+    "00489": "东风集团股份",
+    "01211": "比亚迪汽车",
+    # 新能源
+    "09868": "小鹏汽车",
+    "09866": "蔚来汽车",
+    "02015": "理想汽车",
+    "09863": "零跑汽车",
+    "601127": "赛力斯",
+}
+
+
+def _get_auto_manufacturer(code: str) -> str | None:
+    """根据股票代码返回对应的 gasgoo 车企榜厂商名，无匹配返回 None。"""
+    return AUTO_CORE_MAP.get(code)
+
+
+def _fetch_auto_sales_month(manufacturer: str, month: str) -> int | None:
+    """从 gasgoo 拉单月销量，返回该厂商当月销量整数，失败返回 None。"""
+    try:
+        df = ak.car_sale_rank_gasgoo(symbol="车企榜", date=month)
+        if df.empty:
+            return None
+        # 当月销量列是第二列（列名类似 "2025-1"）
+        sales_col = df.columns[1]
+        match = df[df["厂商"] == manufacturer]
+        if match.empty:
+            return None
+        val = match.iloc[0][sales_col]
+        return int(val) if pd.notna(val) else None
+    except Exception:
+        return None
+
+
+def _load_cached_auto_sales(manufacturer: str, months: list[str]) -> dict[str, int]:
+    """从 SQLite 读取已缓存的月销量。"""
+    _ensure_db()
+    if not months:
+        return {}
+    placeholders = ",".join("?" * len(months))
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            f"SELECT month, sales FROM auto_sales_cache WHERE manufacturer=? AND month IN ({placeholders})",
+            [manufacturer] + months,
+        ).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
+def _save_cached_auto_sales(manufacturer: str, data: dict[str, int]) -> None:
+    if not data:
+        return
+    _ensure_db()
+    now = date.today().isoformat()
+    rows = [(manufacturer, month, sales, now) for month, sales in data.items()]
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO auto_sales_cache (manufacturer, month, sales, updated_at) VALUES (?,?,?,?)",
+            rows,
+        )
+
+
+def _build_months_range(start_date: str, end_date: str) -> list[str]:
+    """生成 [start_date, end_date] 范围内所有 YYYYMM 月份字符串列表。"""
+    start = pd.to_datetime(start_date).replace(day=1)
+    end = pd.to_datetime(end_date).replace(day=1)
+    months = []
+    cur = start
+    while cur <= end:
+        months.append(cur.strftime("%Y%m"))
+        next_month = cur.month % 12 + 1
+        next_year = cur.year + (1 if cur.month == 12 else 0)
+        cur = cur.replace(year=next_year, month=next_month)
+    return months
+
+
+def _fetch_auto_sales_range(
+    manufacturer: str, start_date: str, end_date: str
+) -> list[dict[str, object]]:
+    """返回 [{month: '2025-01', sales: 12345}, ...] 已排序列表，仅返回有数据的月份。"""
+    months = _build_months_range(start_date, end_date)
+    cached = _load_cached_auto_sales(manufacturer, months)
+
+    # 未来月份不拉取；判断为当月（尚未发布）则也跳过
+    today = date.today()
+    current_month = today.strftime("%Y%m")
+    missing = [m for m in months if m not in cached and m < current_month]
+
+    # 逐月拉取缺省数据（最多拉 36 个月避免超时）
+    newly_fetched: dict[str, int] = {}
+    for m in missing[:36]:
+        val = _fetch_auto_sales_month(manufacturer, m)
+        if val is not None:
+            newly_fetched[m] = val
+
+    if newly_fetched:
+        _save_cached_auto_sales(manufacturer, newly_fetched)
+        cached.update(newly_fetched)
+
+    result = []
+    for m in months:
+        if m in cached:
+            year = m[:4]
+            mo = str(int(m[4:]))
+            result.append({"month": f"{year}-{mo.zfill(2)}", "sales": cached[m]})
+    return result
 
 
 def _load_local_symbols() -> dict[str, dict[str, str]]:
@@ -449,7 +615,7 @@ def _build_output_frame(trading_frame: pd.DataFrame, closed_dates: set[str]) -> 
     if trading.empty:
         return closed_frame
 
-    merged = pd.concat([trading, closed_frame], ignore_index=True)
+    merged = pd.concat([trading, closed_frame.dropna(axis=1, how="all")], ignore_index=True)
     merged = merged.drop_duplicates(subset=["date"], keep="first").sort_values("date")
     return merged
 
@@ -1704,10 +1870,39 @@ def kline_stream_api():
     return response
 
 
+@app.get("/api/auto_sales")
+@api_login_required
+def auto_sales_api():
+    """查询汽车股月销量，返回 {manufacturer, items: [{month, sales}]}。"""
+    code = request.args.get("code", "").strip()
+    start_date = request.args.get("start_date", "").strip()
+    end_date = request.args.get("end_date", "").strip()
+
+    if not code:
+        return jsonify({"error": "请提供股票代码"}), 400
+
+    try:
+        market, symbol = _infer_market_and_code(code)
+        symbol = _validate_code(market, symbol)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    manufacturer = _get_auto_manufacturer(symbol)
+    if not manufacturer:
+        return jsonify({"manufacturer": None, "items": []})
+
+    if not start_date or not end_date:
+        default_start, default_end = _default_dates()
+        start_date = start_date or default_start
+        end_date = end_date or default_end
+
+    items = _fetch_auto_sales_range(manufacturer, start_date, end_date)
+    return jsonify({"manufacturer": manufacturer, "items": items})
+
+
 @app.get("/api/fees")
 @api_login_required
 def fees_api():
-    """返回各市场交易费用配置，供前端展示及计算成本用。"""
     return jsonify(TRADE_FEES)
 
 

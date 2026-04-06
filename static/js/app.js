@@ -995,6 +995,87 @@ function streamKline(payload, onProgress) {
   });
 }
 
+const autoSalesSection = document.getElementById('auto-sales-section');
+const autoSalesTitle = document.getElementById('auto-sales-title');
+const autoSalesStatus = document.getElementById('auto-sales-status');
+const autoSalesChart = document.getElementById('auto-sales-chart');
+
+/**
+ * 从 K 线数据中提取每个月最后一个交易日（YYYY-MM-DD），以 YYYY-MM 为 key。
+ */
+function _monthEndDates(klineData) {
+  const map = {};
+  if (!klineData) return map;
+  for (const row of klineData) {
+    const d = row.date; // 'YYYY-MM-DD'
+    if (!d) continue;
+    const ym = d.slice(0, 7); // 'YYYY-MM'
+    if (!map[ym] || d > map[ym]) map[ym] = d;
+  }
+  return map;
+}
+
+async function loadAutoSalesChart(code, startDate, endDate, klineData) {
+  if (!autoSalesSection) return;
+  autoSalesSection.style.display = 'none';
+  if (autoSalesChart) Plotly.purge(autoSalesChart);
+
+  const params = new URLSearchParams({ code, start_date: startDate, end_date: endDate });
+  let result;
+  try {
+    const resp = await fetch(`/api/auto_sales?${params.toString()}`);
+    if (redirectToLoginIfUnauthorized(resp)) return;
+    result = await resp.json();
+  } catch (err) {
+    console.error('[auto_sales] fetch error:', err);
+    return;
+  }
+
+  if (!result || !result.manufacturer || !result.items || result.items.length === 0) {
+    return;
+  }
+
+  autoSalesSection.style.display = 'block';
+  autoSalesTitle.textContent = `${result.manufacturer} 月度销量`;
+  autoSalesStatus.textContent = `共 ${result.items.length} 个月`;
+
+  // 将每月销量对齐到 K 线该月最后一个交易日
+  const monthEnd = _monthEndDates(klineData);
+  const kDates = klineData ? klineData.map((r) => r.date) : null;
+  const xDates = result.items.map((r) => monthEnd[r.month] || (r.month + '-28'));
+  const sales  = result.items.map((r) => r.sales);
+
+  // x 轴范围与 K 线一致
+  const xRange = kDates && kDates.length >= 2
+    ? [kDates[0], kDates[kDates.length - 1]]
+    : undefined;
+
+  Plotly.newPlot(
+    autoSalesChart,
+    [{
+      x: xDates,
+      y: sales,
+      type: 'scatter',
+      mode: 'lines+markers',
+      name: '月销量',
+      line: { color: '#2563eb', width: 2 },
+      marker: { size: 7, color: '#2563eb' },
+      hovertemplate: result.items.map((r) => `${r.month}<br>销量: ${r.sales.toLocaleString()}<extra></extra>`),
+    }],
+    {
+      margin: { t: 30, r: 20, b: 50, l: 70 },
+      xaxis: {
+        type: 'date',
+        range: xRange,
+        tickformat: '%Y-%m',
+      },
+      yaxis: { title: '销量（辆）' },
+      height: 280,
+    },
+    { responsive: true },
+  );
+}
+
 async function onSubmit(event) {
   event.preventDefault();
   if (rangeType.value !== 'custom') {
@@ -1031,8 +1112,10 @@ async function onSubmit(event) {
     );
     await refreshCacheOptions(result.code);
     localStorage.setItem('lastCode', result.code);
+    loadAutoSalesChart(result.code, startDateInput.value, endDateInput.value, result.data);
   } catch (error) {
     Plotly.purge(chartContainer);
+    if (autoSalesSection) autoSalesSection.style.display = 'none';
     tradeControls.classList.remove('visible');
     if (strategyTableEl) strategyTableEl.innerHTML = '';
     renderQueryProgress(error.progress || []);

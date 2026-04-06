@@ -163,6 +163,36 @@ button {
   padding: 8px;
 }
 
+.auto-sales-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 14px 12px;
+  margin-top: 12px;
+}
+
+.auto-sales-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 4px;
+}
+
+.auto-sales-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.auto-sales-status {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.auto-sales-chart {
+  width: 100%;
+  min-height: 260px;
+}
+
 .ma-controls {
   display: none;
   align-items: center;
