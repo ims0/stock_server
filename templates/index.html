@@ -30,19 +30,16 @@
         </label>
 
         <label>
-          开始日期
-          <input id="start_date" name="start_date" type="date" value="{{ default_start }}" />
+          时间范围类型
+          <select id="range-type" name="range-type">
+            <option value="recent" selected>最近一段时间</option>
+            <option value="custom">起止时间</option>
+          </select>
         </label>
 
-        <label>
-          结束日期
-          <input id="end_date" name="end_date" type="date" value="{{ default_end }}" />
-        </label>
-
-        <label>
-          快速时段
+        <label id="date-preset-group">
+          最近一段时间
           <select id="date-preset">
-            <option value="">自定义</option>
             <option value="1">近 1 个月</option>
             <option value="3">近 3 个月</option>
             <option value="6" selected>近 6 个月</option>
@@ -51,6 +48,16 @@
             <option value="18">近 1.5 年</option>
             <option value="24">近 2 年</option>
           </select>
+        </label>
+
+        <label id="start-date-group" class="is-hidden">
+          开始日期
+          <input id="start_date" name="start_date" type="date" value="{{ default_start }}" />
+        </label>
+
+        <label id="end-date-group" class="is-hidden">
+          结束日期
+          <input id="end_date" name="end_date" type="date" value="{{ default_end }}" />
         </label>
 
         <label>

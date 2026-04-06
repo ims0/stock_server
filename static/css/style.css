@@ -50,6 +50,12 @@ h1 {
   border-radius: 8px;
 }
 
+#start-date-group,
+#end-date-group,
+#date-preset-group {
+  min-width: 180px;
+}
+
 label {
   display: flex;
   flex-direction: column;

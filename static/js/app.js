@@ -14,7 +14,13 @@ const sellLineInput = document.getElementById('sell-line-input');
 const tradeStatsEl = document.getElementById('trade-stats');
 const gridStepInput = document.getElementById('grid-step-input');
 const optimizeBtn = document.getElementById('optimize-btn');
+const rangeType = document.getElementById('range-type');
+const datePresetGroup = document.getElementById('date-preset-group');
+const startDateGroup = document.getElementById('start-date-group');
+const endDateGroup = document.getElementById('end-date-group');
 const datePreset = document.getElementById('date-preset');
+const startDateInput = document.getElementById('start_date');
+const endDateInput = document.getElementById('end_date');
 
 function applyDatePreset(months) {
   if (!months) return;
@@ -22,8 +28,23 @@ function applyDatePreset(months) {
   const start = new Date();
   start.setMonth(start.getMonth() - months);
   const fmt = (d) => d.toISOString().slice(0, 10);
-  document.getElementById('start_date').value = fmt(start);
-  document.getElementById('end_date').value = fmt(end);
+  startDateInput.value = fmt(start);
+  endDateInput.value = fmt(end);
+}
+
+function updateRangeMode(mode) {
+  const isRecent = mode !== 'custom';
+  datePresetGroup.classList.toggle('is-hidden', !isRecent);
+  startDateGroup.classList.toggle('is-hidden', isRecent);
+  endDateGroup.classList.toggle('is-hidden', isRecent);
+  datePreset.disabled = !isRecent;
+  startDateInput.disabled = isRecent;
+  endDateInput.disabled = isRecent;
+
+  if (isRecent) {
+    const months = parseInt(datePreset.value, 10);
+    if (months) applyDatePreset(months);
+  }
 }
 
 // Trade simulation state
@@ -962,9 +983,10 @@ function streamKline(payload, onProgress) {
 
 async function onSubmit(event) {
   event.preventDefault();
-  // Apply preset first if selected
-  const presetMonths = parseInt(datePreset.value, 10);
-  if (presetMonths) applyDatePreset(presetMonths);
+  if (rangeType.value !== 'custom') {
+    const presetMonths = parseInt(datePreset.value, 10);
+    if (presetMonths) applyDatePreset(presetMonths);
+  }
   const progressHistory = [];
   showMessage('开始查询...');
   renderSourceStatus([]);
@@ -1053,10 +1075,15 @@ optimizeBtn.addEventListener('click', optimizeBtnHandler);
 
 datePreset.addEventListener('change', () => {
   const months = parseInt(datePreset.value, 10);
-  if (months) applyDatePreset(months);
+  if (rangeType.value !== 'custom' && months) applyDatePreset(months);
+});
+
+rangeType.addEventListener('change', () => {
+  updateRangeMode(rangeType.value);
 });
 
 setManualMode(true);
+updateRangeMode(rangeType.value);
 const _lastCode = localStorage.getItem('lastCode');
 if (_lastCode) {
   codeInput.value = _lastCode;
