@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>密码管理</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f1f5f9;
+        color: #0f172a;
+      }
+      .container {
+        width: min(1120px, calc(100vw - 32px));
+        margin: 24px auto 40px;
+      }
+      .page-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 30px;
+      }
+      .subtle {
+        margin: 6px 0 0;
+        color: #64748b;
+      }
+      .header-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .link-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 38px;
+        padding: 0 14px;
+        border-radius: 10px;
+        border: none;
+        text-decoration: none;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .link-button.primary { background: #2563eb; color: #fff; }
+      .link-button.ghost { background: #e2e8f0; color: #0f172a; }
+      .link-button.danger { background: #dc2626; color: #fff; }
+      .card {
+        background: #fff;
+        border-radius: 18px;
+        box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .message {
+        margin: 0 0 12px;
+        color: #166534;
+      }
+      .message.error {
+        color: #dc2626;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 14px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .field label {
+        font-size: 14px;
+        font-weight: 600;
+        color: #334155;
+      }
+      .field input {
+        height: 42px;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 0 12px;
+        font-size: 14px;
+      }
+      .section-title {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th, td {
+        border-bottom: 1px solid #e2e8f0;
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #f8fafc;
+      }
+      .inline-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .inline-form input {
+        height: 34px;
+      }
+      .inline-form button {
+        height: 34px;
+      }
+      .empty {
+        text-align: center;
+        color: #64748b;
+      }
+      .note {
+        margin: 8px 0 0;
+        font-size: 13px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <header class="page-header">
+        <div>
+          <h1>密码管理</h1>
+          <p class="subtle">当前用户：{{ current_user }}{% if is_root %}，具备用户管理权限{% endif %}</p>
+        </div>
+        <div class="header-actions">
+          <a class="link-button ghost" href="{{ url_for('index') }}">返回查询主页</a>
+          <a class="link-button ghost" href="{{ url_for('cache_page') }}">缓存管理</a>
+          <a class="link-button danger" href="{{ url_for('logout') }}">退出登录</a>
+        </div>
+      </header>
+
+      {% if message %}
+        <p class="message">{{ message }}</p>
+      {% endif %}
+      {% if error %}
+        <p class="message error">{{ error }}</p>
+      {% endif %}
+
+      <section class="card">
+        <h2 class="section-title">修改当前密码</h2>
+        <form method="post" class="grid">
+          <input type="hidden" name="action" value="change_password" />
+          <div class="field">
+            <label for="current_password">当前密码</label>
+            <input id="current_password" name="current_password" type="password" required />
+          </div>
+          <div class="field">
+            <label for="new_password">新密码</label>
+            <input id="new_password" name="new_password" type="password" required />
+          </div>
+          <div class="field">
+            <label for="confirm_password">确认新密码</label>
+            <input id="confirm_password" name="confirm_password" type="password" required />
+          </div>
+          <div class="actions">
+            <button class="link-button primary" type="submit">更新密码</button>
+          </div>
+        </form>
+      </section>
+
+      {% if is_root %}
+      <section class="card">
+        <h2 class="section-title">创建新用户</h2>
+        <form method="post" class="grid">
+          <input type="hidden" name="action" value="add_user" />
+          <div class="field">
+            <label for="new_username">用户名</label>
+            <input id="new_username" name="new_username" type="text" required />
+          </div>
+          <div class="field">
+            <label for="new_user_password">密码</label>
+            <input id="new_user_password" name="new_password" type="password" required />
+          </div>
+          <div class="actions">
+            <button class="link-button primary" type="submit">创建用户</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">现有用户</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>重置密码</th>
+                <th>删除</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for username in users %}
+              <tr>
+                <td>{{ username }}</td>
+                <td>
+                  <form method="post" class="inline-form">
+                    <input type="hidden" name="action" value="reset_password" />
+                    <input type="hidden" name="target_username" value="{{ username }}" />
+                    <input name="new_password" type="password" placeholder="新密码" required />
+                    <button class="link-button ghost" type="submit">重置</button>
+                  </form>
+                </td>
+                <td>
+                  {% if username == 'root' %}
+                    <span class="note">root 账号不可删除</span>
+                  {% else %}
+                    <form method="post" class="inline-form">
+                      <input type="hidden" name="action" value="delete_user" />
+                      <input type="hidden" name="target_username" value="{{ username }}" />
+                      <button class="link-button danger" type="submit">删除</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

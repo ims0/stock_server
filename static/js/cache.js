@@ -8,6 +8,14 @@ function setMessage(text, isError = false) {
   messageEl.classList.toggle('error', isError);
 }
 
+function redirectToLoginIfUnauthorized(response) {
+  if (response && response.status === 401) {
+    window.location.href = '/login';
+    return true;
+  }
+  return false;
+}
+
 function formatRange(start, end) {
   if (!start || !end) {
     return '-';
@@ -41,6 +49,9 @@ function renderTable(items) {
 async function fetchSummary() {
   setMessage('加载中...');
   const response = await fetch('/api/cache/summary');
+  if (redirectToLoginIfUnauthorized(response)) {
+    return;
+  }
   const result = await response.json();
 
   if (!response.ok) {
@@ -54,6 +65,9 @@ async function fetchSummary() {
 async function deleteCache(code) {
   const params = code ? `?code=${encodeURIComponent(code)}` : '';
   const response = await fetch(`/api/cache${params}`, { method: 'DELETE' });
+  if (redirectToLoginIfUnauthorized(response)) {
+    return null;
+  }
   const result = await response.json();
 
   if (!response.ok) {

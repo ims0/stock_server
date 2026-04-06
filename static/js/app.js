@@ -58,6 +58,9 @@ let _feeConfig = null;
 async function loadFeeConfig() {
   try {
     const resp = await fetch('/api/fees');
+    if (redirectToLoginIfUnauthorized(resp)) {
+      return;
+    }
     if (resp.ok) {
       _feeConfig = await resp.json();
     }
@@ -78,6 +81,14 @@ function calcTotalFeeRate(feeItems) {
 function showMessage(text, isError = false) {
   messageEl.textContent = text;
   messageEl.classList.toggle('error', isError);
+}
+
+function redirectToLoginIfUnauthorized(response) {
+  if (response && response.status === 401) {
+    window.location.href = '/login';
+    return true;
+  }
+  return false;
 }
 
 function movingAverage(values, windowSize) {
@@ -876,6 +887,9 @@ function applyCacheOptions(items, keepValue) {
 async function refreshCacheOptions(keepValue = null) {
   try {
     const response = await fetch('/api/cache/summary');
+    if (redirectToLoginIfUnauthorized(response)) {
+      return;
+    }
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || '缓存列表加载失败');
@@ -1044,6 +1058,9 @@ async function checkSources() {
 
   try {
     const response = await fetch(`/api/sources/health?${params.toString()}`);
+    if (redirectToLoginIfUnauthorized(response)) {
+      return;
+    }
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || '检测失败');

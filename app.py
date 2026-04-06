@@ -7,7 +7,8 @@ import sqlite3
 import time
 from queue import Empty, Queue
 from threading import Thread
-from urllib.parse import urlencode
+from functools import wraps
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 import akshare as ak
@@ -15,11 +16,29 @@ import os
 import pandas as pd
 import tushare as ts
 import yfinance as yf
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    stream_with_context,
+    url_for,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import TRADE_FEES
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24).hex()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=36000,
+)
 
 DB_PATH = os.path.join(app.root_path, "data", "stock_cache.db")
 LOCAL_SYMBOLS_PATH = os.path.join(app.root_path, "data", "symbols.json")
@@ -32,10 +51,125 @@ DATA_SOURCES = {
     "alphavantage": "Alpha Vantage",
 }
 TUSHARE_TOKEN_FALLBACK = "f028f82a7bd86c57e54607995b4ed38b7eb3894e357a882eb7a5f665"
+USERS_PATH = os.path.join(app.root_path, "users.json")
+DEFAULT_USERS = {
+    "root": {
+        "password": "scrypt:32768:8:1$7tv3rMF9QW0nL9yy$51cfa6e2667b6ebd3843b726e5ec962604460afd1163148698c25b94b7e2e4c91b0c1bd30fce06dbe0f69223f144832500b99bf099e195863ef08eb70326a461",
+    },
+    "reader": {
+        "password": "scrypt:32768:8:1$W6UhrfFHiwDUaprF$359a1d10e70ee93546eed508ee9a4b40d0550b9cb6dc7bfc3249a87102f4138a51d1190834a4e07656aa1c01406e44eb9ed8bf3ec751021f5d8b936ffa26a63e",
+    },
+}
 
 _tushare_client: ts.pro.client.DataApi | None = None
 _local_symbols_cache: dict[str, dict[str, str]] | None = None
 _local_symbols_mtime: float | None = None
+_users_cache: dict[str, dict[str, str]] | None = None
+_users_mtime: float | None = None
+
+
+def _ensure_users_file() -> None:
+    if os.path.exists(USERS_PATH):
+        return
+
+    os.makedirs(os.path.dirname(USERS_PATH), exist_ok=True)
+    with open(USERS_PATH, "w", encoding="utf-8") as handle:
+        json.dump(DEFAULT_USERS, handle, ensure_ascii=False, indent=2)
+
+
+def _load_users() -> dict[str, dict[str, str]]:
+    global _users_cache, _users_mtime
+
+    _ensure_users_file()
+
+    try:
+        stat_result = os.stat(USERS_PATH)
+    except FileNotFoundError:
+        return json.loads(json.dumps(DEFAULT_USERS))
+
+    if _users_cache is not None and _users_mtime == stat_result.st_mtime:
+        return _users_cache
+
+    try:
+        with open(USERS_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return _users_cache or json.loads(json.dumps(DEFAULT_USERS))
+
+    normalized: dict[str, dict[str, str]] = {}
+    if isinstance(payload, dict):
+        for username, record in payload.items():
+            if not isinstance(record, dict):
+                continue
+            password_hash = str(record.get("password", "")).strip()
+            if password_hash:
+                normalized[str(username)] = {"password": password_hash}
+
+    if not normalized:
+        normalized = json.loads(json.dumps(DEFAULT_USERS))
+
+    _users_cache = normalized
+    _users_mtime = stat_result.st_mtime
+    return normalized
+
+
+def _save_users(users: dict[str, dict[str, str]]) -> None:
+    global _users_cache, _users_mtime
+
+    os.makedirs(os.path.dirname(USERS_PATH), exist_ok=True)
+    with open(USERS_PATH, "w", encoding="utf-8") as handle:
+        json.dump(users, handle, ensure_ascii=False, indent=2, sort_keys=True)
+
+    _users_cache = users
+    _users_mtime = os.path.getmtime(USERS_PATH)
+
+
+users = _load_users()
+
+
+def _is_safe_next_url(target: str | None) -> bool:
+    if not target:
+        return False
+
+    parsed_target = urlparse(urljoin(request.host_url, target))
+    parsed_host = urlparse(request.host_url)
+    return parsed_target.scheme in {"http", "https"} and parsed_target.netloc == parsed_host.netloc
+
+
+def _get_next_url() -> str:
+    candidate = request.args.get("next") or request.form.get("next") or ""
+    if _is_safe_next_url(candidate):
+        return candidate
+    return url_for("index")
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "username" not in session:
+            return redirect(url_for("login", next=request.full_path.rstrip("?")))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def api_login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if "username" not in session:
+            return jsonify({"error": "请先登录"}), 401
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+@app.context_processor
+def inject_auth_context() -> dict[str, object]:
+    username = session.get("username")
+    return {
+        "current_user": username,
+        "is_root_user": username == "root",
+    }
 
 
 def _get_tushare_client() -> ts.pro.client.DataApi | None:
@@ -1223,6 +1357,7 @@ def _to_yfinance_symbol(market: str, code: str) -> str:
 
 
 @app.get("/api/sources/health")
+@api_login_required
 def sources_health_api():
     code = request.args.get("code", "").strip()
     start_date = request.args.get("start_date", "").strip()
@@ -1309,14 +1444,122 @@ def sources_health_api():
 
 
 @app.route("/")
+@login_required
 def index():
     default_start, default_end = _default_dates()
     return render_template("index.html", default_start=default_start, default_end=default_end)
 
 
 @app.route("/cache")
+@login_required
 def cache_page():
     return render_template("cache.html")
+
+
+@app.route("/account", methods=["GET", "POST"])
+@login_required
+def account_page():
+    global users
+
+    current_user = session.get("username", "")
+    is_root = current_user == "root"
+    message = ""
+    error = ""
+
+    if request.method == "POST":
+        action = request.form.get("action", "").strip()
+
+        if action == "change_password":
+            current_password = request.form.get("current_password", "")
+            new_password = request.form.get("new_password", "")
+            confirm_password = request.form.get("confirm_password", "")
+            user_record = users.get(current_user)
+
+            if not user_record or not check_password_hash(user_record["password"], current_password):
+                error = "当前密码不正确"
+            elif not new_password:
+                error = "新密码不能为空"
+            elif new_password != confirm_password:
+                error = "两次输入的新密码不一致"
+            else:
+                users[current_user]["password"] = generate_password_hash(new_password)
+                _save_users(users)
+                message = "密码已更新"
+
+        elif is_root and action == "add_user":
+            new_username = request.form.get("new_username", "").strip()
+            new_password = request.form.get("new_password", "")
+            if not new_username:
+                error = "用户名不能为空"
+            elif new_username in users:
+                error = "用户已存在"
+            elif not new_password:
+                error = "密码不能为空"
+            else:
+                users[new_username] = {"password": generate_password_hash(new_password)}
+                _save_users(users)
+                message = f"已创建用户 {new_username}"
+
+        elif is_root and action == "reset_password":
+            target_username = request.form.get("target_username", "").strip()
+            new_password = request.form.get("new_password", "")
+            if target_username not in users:
+                error = "用户不存在"
+            elif not new_password:
+                error = "密码不能为空"
+            else:
+                users[target_username]["password"] = generate_password_hash(new_password)
+                _save_users(users)
+                message = f"已重置 {target_username} 的密码"
+
+        elif is_root and action == "delete_user":
+            target_username = request.form.get("target_username", "").strip()
+            if target_username == "root":
+                error = "不能删除 root"
+            elif target_username not in users:
+                error = "用户不存在"
+            else:
+                users.pop(target_username, None)
+                _save_users(users)
+                message = f"已删除用户 {target_username}"
+
+        else:
+            error = "无效操作"
+
+    return render_template(
+        "account.html",
+        users=sorted(users.keys()),
+        is_root=is_root,
+        message=message,
+        error=error,
+    )
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if "username" in session:
+        return redirect(url_for("index"))
+
+    error = ""
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        user_record = users.get(username)
+
+        if user_record and check_password_hash(user_record["password"], password):
+            session["username"] = username
+            session.permanent = True
+            return redirect(_get_next_url())
+
+        error = "用户名或密码错误"
+
+    return render_template("login.html", error=error, next_url=_get_next_url())
+
+
+@app.route("/logout")
+def logout():
+    session.pop("username", None)
+    return redirect(url_for("login"))
 
 
 def _execute_kline_query(
@@ -1400,6 +1643,7 @@ def _execute_kline_query(
 
 
 @app.get("/api/kline")
+@api_login_required
 def kline_api():
     code = request.args.get("code", "").strip()
     start_date = request.args.get("start_date", "").strip()
@@ -1410,6 +1654,7 @@ def kline_api():
 
 
 @app.get("/api/kline/stream")
+@api_login_required
 def kline_stream_api():
     code = request.args.get("code", "").strip()
     start_date = request.args.get("start_date", "").strip()
@@ -1460,18 +1705,21 @@ def kline_stream_api():
 
 
 @app.get("/api/fees")
+@api_login_required
 def fees_api():
     """返回各市场交易费用配置，供前端展示及计算成本用。"""
     return jsonify(TRADE_FEES)
 
 
 @app.get("/api/cache/summary")
+@api_login_required
 def cache_summary_api():
     summary = _cache_summary()
     return jsonify({"items": summary, "count": len(summary)})
 
 
 @app.delete("/api/cache")
+@api_login_required
 def clear_cache():
     code = request.args.get("code", "").strip()
     _ensure_db()
