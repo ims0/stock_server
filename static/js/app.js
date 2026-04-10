@@ -999,6 +999,9 @@ const autoSalesSection = document.getElementById('auto-sales-section');
 const autoSalesTitle = document.getElementById('auto-sales-title');
 const autoSalesStatus = document.getElementById('auto-sales-status');
 const autoSalesChart = document.getElementById('auto-sales-chart');
+const priceProbSection = document.getElementById('price-prob-section');
+const priceProbStatus = document.getElementById('price-prob-status');
+const priceProbChart = document.getElementById('price-prob-chart');
 
 /**
  * 从 K 线数据中提取每个月最后一个交易日（YYYY-MM-DD），以 YYYY-MM 为 key。
@@ -1076,6 +1079,148 @@ async function loadAutoSalesChart(code, startDate, endDate, klineData) {
   );
 }
 
+/**
+ * 构建价格区间概率分布图（抛物线）
+ * X轴：整数价格（从最低到最高，间隔1）
+ * Y轴：该价格在有效K线中被覆盖的概率（low <= price <= high），最高100%
+ * 同时叠加最近1/3/6个月的概率曲线
+ */
+function buildPriceProbChart(data) {
+  if (!priceProbSection || !priceProbChart) return;
+
+  const tradingRows = data.filter((r) => r.is_open && r.low != null && r.high != null);
+  if (tradingRows.length === 0) {
+    priceProbSection.style.display = 'none';
+    return;
+  }
+
+  // 按日期排序，取最后一个日期作为结束基准
+  const sortedRows = [...tradingRows].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const endDate = sortedRows[sortedRows.length - 1].date;
+
+  function rowsForLastMonths(months) {
+    const end = new Date(endDate);
+    const start = new Date(endDate);
+    start.setMonth(start.getMonth() - months);
+    const startStr = start.toISOString().slice(0, 10);
+    return sortedRows.filter((r) => r.date >= startStr);
+  }
+
+  // 价格区间取全时段最高/最低，保证 X 轴统一
+  const minLow = Math.min(...tradingRows.map((r) => r.low));
+  const maxHigh = Math.max(...tradingRows.map((r) => r.high));
+  const priceMin = Math.floor(minLow * 2) / 2;  // 向下取到最近0.5
+  const priceMax = Math.ceil(maxHigh * 2) / 2;   // 向上取到最近0.5
+  // 步长0.5，用整数索引避免浮点累积误差
+  const stepCount = Math.round((priceMax - priceMin) / 0.5);
+  const prices = Array.from({ length: stepCount + 1 }, (_, i) => priceMin + i * 0.5);
+
+  function calcProbs(rows) {
+    const n = rows.length;
+    if (n === 0) return null;
+    return prices.map((p) => {
+      const count = rows.reduce((acc, r) => acc + (r.low <= p && p <= r.high ? 1 : 0), 0);
+      return (count / n) * 100;
+    });
+  }
+
+  // 只在整数价格画竖线
+  const intPriceMin = Math.ceil(priceMin);
+  const intPriceMax = Math.floor(priceMax);
+  const gridShapes = [];
+  for (let p = intPriceMin; p <= intPriceMax; p += 1) {
+    gridShapes.push({
+      type: 'line',
+      xref: 'x', yref: 'paper',
+      x0: p, x1: p, y0: 0, y1: 1,
+      line: { color: '#e5e7eb', width: 1 },
+    });
+  }
+
+  const windows = [
+    { label: '选定时间段', rows: sortedRows, color: '#2563eb', dash: 'solid', width: 3 },
+    { label: '近6个月',    rows: rowsForLastMonths(6), color: '#f59e0b', dash: 'solid', width: 1.5 },
+    { label: '近3个月',    rows: rowsForLastMonths(3), color: '#10b981', dash: 'solid', width: 1.5 },
+    { label: '近1个月',    rows: rowsForLastMonths(1), color: '#ef4444', dash: 'dot',   width: 1.5 },
+  ];
+
+  const traces = [];
+  let fullProbs = null;
+
+  for (const w of windows) {
+    const probs = calcProbs(w.rows);
+    if (!probs) continue;
+    if (!fullProbs) fullProbs = probs; // 第一条（选定时段）作为主曲线
+
+    traces.push({
+      x: prices,
+      y: probs,
+      type: 'scatter',
+      mode: 'lines',
+      name: `${w.label}（${w.rows.length}根）`,
+      line: { color: w.color, width: w.width, dash: w.dash },
+      hovertemplate: `${w.label} 价格 %{x}<br>概率 %{y:.1f}%<extra></extra>`,
+    });
+  }
+
+  // 在主曲线下方加填充区
+  if (traces.length > 0) {
+    traces[0].fill = 'tozeroy';
+    traces[0].fillcolor = 'rgba(37,99,235,0.08)';
+  }
+
+  // 标注主曲线的高频价
+  if (fullProbs) {
+    const maxProb = Math.max(...fullProbs);
+    const peakIdx = fullProbs.indexOf(maxProb);
+    const peakPrice = prices[peakIdx];
+    traces.push({
+      x: [peakPrice],
+      y: [maxProb],
+      type: 'scatter',
+      mode: 'markers+text',
+      name: '高频价',
+      showlegend: false,
+      marker: { color: '#2563eb', size: 9, symbol: 'diamond' },
+      text: [`${peakPrice}`],
+      textposition: 'top center',
+      textfont: { color: '#2563eb', size: 12 },
+      hovertemplate: `高频价 %{x}<br>选定段概率 %{y:.1f}%<extra></extra>`,
+    });
+  }
+
+  priceProbSection.style.display = 'block';
+
+  Plotly.newPlot(
+    priceProbChart,
+    traces,
+    {
+      margin: { t: 10, r: 20, b: 50, l: 60 },
+      xaxis: {
+        title: '价格',
+        tickmode: 'array',
+        tickvals: prices,
+        ticktext: prices.map((p) => (Number.isInteger(p) ? String(p) : '')),
+        autorange: false,
+        range: [priceMin - 0.25, priceMax + 0.25],
+        showgrid: false,
+        fixedrange: false,
+      },
+      shapes: gridShapes,
+      yaxis: { title: '概率 (%)', range: [0, 105] },
+      height: 320,
+      legend: { orientation: 'h', y: -0.2, x: 0 },
+    },
+    { responsive: true },
+  );
+
+  if (priceProbStatus) {
+    const total = sortedRows.length;
+    const peakPrice = fullProbs ? prices[fullProbs.indexOf(Math.max(...fullProbs))] : '-';
+    priceProbStatus.textContent = `价格区间 ${priceMin} ~ ${priceMax}，选定段 ${total} 根K线，高频价 ${peakPrice}`;
+  }
+}
+
 async function onSubmit(event) {
   event.preventDefault();
   if (rangeType.value !== 'custom') {
@@ -1106,6 +1251,7 @@ async function onSubmit(event) {
     });
     const titleName = result.name ? `${result.name} ` : '';
     buildCandlestick(result.data, `${result.market_label} ${titleName}${result.code} K线图`, result.market);
+    buildPriceProbChart(result.data);
     renderQueryProgress(result.progress || []);
     showMessage(
       `查询成功：${result.market_label} ${titleName}${result.code}，共 ${result.rows} 条数据（来源：${result.source_label}）`
@@ -1116,6 +1262,7 @@ async function onSubmit(event) {
   } catch (error) {
     Plotly.purge(chartContainer);
     if (autoSalesSection) autoSalesSection.style.display = 'none';
+    if (priceProbSection) priceProbSection.style.display = 'none';
     tradeControls.classList.remove('visible');
     if (strategyTableEl) strategyTableEl.innerHTML = '';
     renderQueryProgress(error.progress || []);

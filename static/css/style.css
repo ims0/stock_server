@@ -193,6 +193,36 @@ button {
   min-height: 260px;
 }
 
+.price-prob-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 14px 12px;
+  margin-top: 12px;
+}
+
+.price-prob-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0 4px;
+}
+
+.price-prob-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.price-prob-status {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.price-prob-chart {
+  width: 100%;
+  min-height: 280px;
+}
+
 .ma-controls {
   display: none;
   align-items: center;
