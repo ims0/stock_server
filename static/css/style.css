@@ -56,6 +56,35 @@ h1 {
   min-width: 180px;
 }
 
+.code-select-wrapper {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.code-select-wrapper select {
+  flex: 1;
+  min-width: 0;
+}
+
+.delete-code-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 36px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.delete-code-btn:hover {
+  background: #fecaca;
+}
+
 label {
   display: flex;
   flex-direction: column;

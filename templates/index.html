@@ -25,9 +25,12 @@
       <form id="query-form" class="query-form">
         <label>
           股票代码
-          <select id="code-select" name="code-select">
-            <option value="manual">手动输入</option>
-          </select>
+          <div class="code-select-wrapper">
+            <select id="code-select" name="code-select">
+              <option value="manual">手动输入</option>
+            </select>
+            <button type="button" id="delete-code-btn" class="delete-code-btn is-hidden" title="删除该股票缓存">×</button>
+          </div>
           <input
             id="code-input"
             name="code-input"

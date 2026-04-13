@@ -2,6 +2,7 @@ const form = document.getElementById('query-form');
 const chartContainer = document.getElementById('chart');
 const messageEl = document.getElementById('message');
 const codeSelect = document.getElementById('code-select');
+const deleteCodeBtn = document.getElementById('delete-code-btn');
 const codeInput = document.getElementById('code-input');
 const sourceStatus = document.getElementById('source-status');
 const checkSourcesButton = document.getElementById('check-sources');
@@ -872,15 +873,18 @@ function applyCacheOptions(items, keepValue) {
   if (keepValue && [...codeSelect.options].some((opt) => opt.value === keepValue)) {
     codeSelect.value = keepValue;
     setManualMode(keepValue === 'manual');
+    deleteCodeBtn.classList.toggle('is-hidden', keepValue === 'manual');
     return;
   }
 
   if (items.length) {
     codeSelect.value = items[0].code;
     setManualMode(false);
+    deleteCodeBtn.classList.remove('is-hidden');
   } else {
     codeSelect.value = 'manual';
     setManualMode(true);
+    deleteCodeBtn.classList.add('is-hidden');
   }
 }
 
@@ -1137,11 +1141,15 @@ function buildPriceProbChart(data) {
     });
   }
 
+  const w6rows = rowsForLastMonths(6);
+  const w3rows = rowsForLastMonths(3);
+  const w1rows = rowsForLastMonths(1);
+
   const windows = [
     { label: '选定时间段', rows: sortedRows, color: '#2563eb', dash: 'solid', width: 3 },
-    { label: '近6个月',    rows: rowsForLastMonths(6), color: '#f59e0b', dash: 'solid', width: 1.5 },
-    { label: '近3个月',    rows: rowsForLastMonths(3), color: '#10b981', dash: 'solid', width: 1.5 },
-    { label: '近1个月',    rows: rowsForLastMonths(1), color: '#ef4444', dash: 'dot',   width: 1.5 },
+    ...(w6rows.length < sortedRows.length ? [{ label: '近6个月', rows: w6rows, color: '#f59e0b', dash: 'solid', width: 1.5 }] : []),
+    ...(w3rows.length < sortedRows.length ? [{ label: '近3个月', rows: w3rows, color: '#10b981', dash: 'solid', width: 1.5 }] : []),
+    ...(w1rows.length < sortedRows.length ? [{ label: '近1个月', rows: w1rows, color: '#ef4444', dash: 'dot',   width: 1.5 }] : []),
   ];
 
   const traces = [];
@@ -1304,7 +1312,25 @@ async function checkSources() {
 
 form.addEventListener('submit', onSubmit);
 codeSelect.addEventListener('change', () => {
-  setManualMode(codeSelect.value === 'manual');
+  const isManual = codeSelect.value === 'manual';
+  setManualMode(isManual);
+  deleteCodeBtn.classList.toggle('is-hidden', isManual);
+});
+
+deleteCodeBtn.addEventListener('click', async () => {
+  const code = codeSelect.value;
+  if (!code || code === 'manual') return;
+  if (!confirm(`确认删除「${code}」的缓存？`)) return;
+  try {
+    const resp = await fetch(`/api/cache?code=${encodeURIComponent(code)}`, { method: 'DELETE' });
+    if (redirectToLoginIfUnauthorized(resp)) return;
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || '删除失败');
+    showMessage(`已删除 ${code} 的缓存`);
+    await refreshCacheOptions();
+  } catch (err) {
+    showMessage(err.message, true);
+  }
 });
 checkSourcesButton.addEventListener('click', checkSources);
 
