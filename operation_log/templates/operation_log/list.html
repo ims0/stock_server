@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>操作日志复盘</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}" />
+    <link rel="stylesheet" href="{{ url_for('operation_log.static', filename='operation_log.css') }}" />
+  </head>
+  <body>
+    <main class="log-shell">
+      <nav class="category-tabs">
+        <a class="category-tab {% if category == 'operation_record' %}active{% endif %}" href="{{ url_for('operation_log.operation_records_page') }}">操作记录</a>
+        <a class="category-tab {% if category == 'technical_summary' %}active{% endif %}" href="{{ url_for('operation_log.technical_summaries_page') }}">技术总结文档</a>
+      </nav>
+
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Operation Review Log</p>
+          <h1>{{ page_config.hero_title }}</h1>
+          <p class="hero-copy">{{ page_config.hero_copy }}</p>
+        </div>
+        <div class="hero-actions">
+          <a class="button ghost" href="{{ url_for('index') }}">返回查询</a>
+          <a class="button ghost" href="{{ url_for('cache_page') }}">缓存管理</a>
+          <a class="button primary" href="{{ url_for(page_config.create_endpoint) }}">新建{{ page_config.list_title }}</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <span>有效日志</span>
+          <strong>{{ stats.active_total }}</strong>
+        </article>
+        <article class="stat-card accent">
+          <span>已发布</span>
+          <strong>{{ stats.published_total }}</strong>
+        </article>
+        <article class="stat-card warm">
+          <span>草稿</span>
+          <strong>{{ stats.draft_total }}</strong>
+        </article>
+        <article class="stat-card muted">
+          <span>已删除</span>
+          <strong>{{ stats.deleted_total }}</strong>
+        </article>
+      </section>
+
+      <section class="panel filter-panel">
+        <form class="filter-form" method="get">
+          <label>
+            关键字
+            <input type="text" name="keyword" value="{{ keyword }}" placeholder="标题 / 标的 / 内容" />
+          </label>
+          <label>
+            状态
+            <select name="status">
+              <option value="">全部状态</option>
+              {% for key, label in status_labels.items() %}
+                <option value="{{ key }}" {% if status == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            范围
+            <select name="scope">
+              <option value="active" {% if scope == 'active' %}selected{% endif %}>有效日志</option>
+              <option value="deleted" {% if scope == 'deleted' %}selected{% endif %}>已删除</option>
+              <option value="all" {% if scope == 'all' %}selected{% endif %}>全部</option>
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button class="button primary" type="submit">筛选</button>
+            <a class="button ghost" href="{{ url_for(page_config.list_endpoint) }}">重置</a>
+          </div>
+        </form>
+      </section>
+
+      <section class="content-grid">
+        <section class="panel table-panel">
+          <div class="section-head">
+            <div>
+              <h2>{{ page_config.list_title }}</h2>
+              <p>默认按发布时间或最近更新时间倒序显示。</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>标题</th>
+                  {% if page_config.show_symbol %}
+                    <th>标的</th>
+                  {% endif %}
+                  {% if page_config.show_event_date %}
+                    <th>{{ page_config.event_date_label }}</th>
+                  {% endif %}
+                  <th>发布时间</th>
+                  <th>状态</th>
+                  <th>最近更新</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in logs %}
+                  <tr>
+                    <td>
+                      <a class="table-link" href="{{ url_for('operation_log.detail_page', log_id=log.id) }}">{{ log.title }}</a>
+                      {% if log.action_summary %}
+                        <div class="table-note">{{ log.action_summary }}</div>
+                      {% endif %}
+                    </td>
+                    {% if page_config.show_symbol %}
+                      <td>{{ log.symbol or '-' }}</td>
+                    {% endif %}
+                    {% if page_config.show_event_date %}
+                      <td>{{ log.event_date }}</td>
+                    {% endif %}
+                    <td>{{ operation_log_display_datetime(log.published_at) }}</td>
+                    <td><span class="status-pill {{ log.status }}">{{ status_labels[log.status] }}</span></td>
+                    <td>{{ operation_log_display_datetime(log.updated_at) }}</td>
+                    <td>
+                      <div class="row-actions">
+                        <a class="button tiny ghost" href="{{ url_for('operation_log.detail_page', log_id=log.id) }}">查看</a>
+                        <a class="button tiny ghost" href="{{ url_for('operation_log.edit_page', log_id=log.id) }}">编辑</a>
+                        {% if not log.deleted_at %}
+                          <form method="post" action="{{ url_for('operation_log.delete_page', log_id=log.id) }}" onsubmit="return confirm('确认删除这条日志？');">
+                            <button class="button tiny danger" type="submit">删除</button>
+                          </form>
+                        {% else %}
+                          <span class="table-note">{{ operation_log_display_datetime(log.deleted_at) }} 删除</span>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td colspan="{{ 7 if page_config.show_symbol and page_config.show_event_date else 6 if page_config.show_symbol or page_config.show_event_date else 5 }}" class="empty">暂无符合条件的日志记录</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="panel side-panel">
+          <div class="section-head">
+            <div>
+              <h2>最近操作</h2>
+              <p>记录每次新建、编辑、删除，方便复盘修改轨迹。</p>
+            </div>
+          </div>
+          <div class="timeline">
+            {% for item in recent_actions %}
+              <article class="timeline-item">
+                <div class="timeline-meta">
+                  <span class="action-tag {{ item.action }}">{{ item.action }}</span>
+                  <span>{{ item.username }}</span>
+                </div>
+                <a class="timeline-title" href="{{ url_for('operation_log.detail_page', log_id=item.log_id) }}">{{ item.title }}</a>
+                <p>{{ operation_log_display_datetime(item.happened_at) }}</p>
+              </article>
+            {% else %}
+              <p class="empty-side">日志系统已初始化，尚未有操作记录。</p>
+            {% endfor %}
+          </div>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

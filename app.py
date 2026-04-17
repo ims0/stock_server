@@ -31,6 +31,7 @@ from flask import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import TRADE_FEES
+from operation_log import create_operation_log_blueprint
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24).hex()
@@ -39,6 +40,7 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=36000,
 )
+app.register_blueprint(create_operation_log_blueprint(app.root_path))
 
 DB_PATH = os.path.join(app.root_path, "data", "stock_cache.db")
 LOCAL_SYMBOLS_PATH = os.path.join(app.root_path, "data", "symbols.json")

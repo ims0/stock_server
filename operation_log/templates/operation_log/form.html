@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ page_title }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}" />
+    <link rel="stylesheet" href="{{ url_for('operation_log.static', filename='operation_log.css') }}" />
+  </head>
+  <body>
+    <main class="log-shell form-shell">
+      <nav class="category-tabs">
+        <a class="category-tab {% if (form_data.category or 'operation_record') == 'operation_record' %}active{% endif %}" href="{{ url_for('operation_log.operation_records_page') }}">操作记录</a>
+        <a class="category-tab {% if (form_data.category or 'operation_record') == 'technical_summary' %}active{% endif %}" href="{{ url_for('operation_log.technical_summaries_page') }}">技术总结文档</a>
+      </nav>
+
+      <header class="hero compact">
+        <div>
+          <p class="eyebrow">Operation Review Log</p>
+          <h1>{{ page_title }}</h1>
+          <p class="hero-copy">{{ page_config.hero_copy }}</p>
+        </div>
+        <div class="hero-actions">
+          <a class="button ghost" href="{{ url_for(page_config.list_endpoint) }}">返回列表</a>
+        </div>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <section class="panel editor-panel">
+        <form method="post" class="editor-form">
+          <input type="hidden" name="category" value="{{ form_data.category or 'operation_record' }}" />
+          <div class="grid-two">
+            <label>
+              标题
+              <input type="text" name="title" value="{{ form_data.title or '' }}" required />
+            </label>
+            {% if page_config.show_symbol %}
+              <label>
+                {{ page_config.symbol_label }}
+                <input type="text" name="symbol" value="{{ form_data.symbol or '' }}" placeholder="{{ page_config.symbol_placeholder }}" />
+              </label>
+            {% endif %}
+            {% if page_config.show_event_date %}
+              <label>
+                {{ page_config.event_date_label }}
+                <input type="date" name="event_date" value="{{ form_data.event_date or '' }}" required />
+              </label>
+            {% endif %}
+            <label>
+              发布时间
+              <input type="datetime-local" name="published_at" value="{{ to_datetime_local(form_data.published_at) if form_data.published_at is string else form_data.published_at or '' }}" />
+            </label>
+            <label>
+              状态
+              <select name="status">
+                {% for key, label in status_labels.items() %}
+                  <option value="{{ key }}" {% if (form_data.status or 'draft') == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              {{ page_config.summary_label }}
+              <input type="text" name="action_summary" value="{{ form_data.action_summary or '' }}" placeholder="{{ page_config.summary_placeholder }}" />
+            </label>
+          </div>
+          <label>
+            {{ page_config.content_label }}
+            <textarea name="content" rows="16" required placeholder="{{ page_config.content_placeholder }}">{{ form_data.content or '' }}</textarea>
+          </label>
+          <div class="form-actions">
+            <button class="button primary" type="submit">{{ submit_label }}</button>
+            <a class="button ghost" href="{{ url_for(page_config.list_endpoint) }}">取消</a>
+          </div>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
