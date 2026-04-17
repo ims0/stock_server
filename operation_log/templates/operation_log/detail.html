@@ -38,6 +38,12 @@
 
       <section class="content-grid detail-grid">
         <section class="panel article-panel">
+          {% if log.category == 'technical_summary' and log.cover_image_url %}
+            <figure class="article-cover">
+              <img src="{{ log.cover_image_url }}" alt="" loading="lazy" />
+            </figure>
+          {% endif %}
+
           <div class="meta-grid">
             <div>
               <span class="meta-label">文档类型</span>
@@ -74,16 +80,30 @@
           </div>
 
           {% if log.action_summary %}
-            <div class="summary-box">
+            <div class="summary-box {% if log.category == 'technical_summary' %}article-summary{% endif %}">
               <span class="meta-label">{{ page_config.summary_label }}</span>
               <p>{{ log.action_summary }}</p>
             </div>
           {% endif %}
 
-          <article class="article-body">{{ log.content }}</article>
+          {% if log.category == 'technical_summary' %}
+            <article class="article-body markdown-body">{{ rendered_content|safe }}</article>
+          {% else %}
+            <article class="article-body plain-body">{{ log.content }}</article>
+          {% endif %}
         </section>
 
         <aside class="panel side-panel">
+          {% if log.category == 'technical_summary' and rendered_toc %}
+            <div class="section-head toc-head">
+              <div>
+                <h2>目录</h2>
+                <p>按章节快速跳转。</p>
+              </div>
+            </div>
+            <nav class="toc-card">{{ rendered_toc|safe }}</nav>
+          {% endif %}
+
           <div class="section-head">
             <div>
               <h2>操作轨迹</h2>
@@ -105,5 +125,6 @@
         </aside>
       </section>
     </main>
+    <script src="{{ url_for('operation_log.static', filename='operation_log_detail.js') }}"></script>
   </body>
 </html>

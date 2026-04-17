@@ -16,6 +16,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
                 {
                     "category": "operation_record",
                     "title": "首次建仓复盘",
+                    "cover_image_url": "",
                     "symbol": "600519",
                     "action_summary": "回踩均线后分批买入",
                     "content": "记录建仓逻辑和风险控制。",
@@ -37,6 +38,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
                 {
                     "category": "technical_summary",
                     "title": "首次建仓复盘-修订",
+                    "cover_image_url": "https://example.com/cover.png",
                     "symbol": "600519",
                     "action_summary": "补充止损条件",
                     "content": "记录建仓逻辑、风险控制与后续观察点。",
@@ -62,6 +64,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
             self.assertEqual(len(technical_logs), 1)
             self.assertEqual([item["action"] for item in audits], ["delete", "edit", "create"])
             self.assertEqual(audits[0]["snapshot"]["category"], "technical_summary")
+            self.assertEqual(audits[0]["snapshot"]["cover_image_url"], "https://example.com/cover.png")
             self.assertEqual(stats["deleted_total"], 1)
 
     def test_migrate_existing_database_without_category(self) -> None:
@@ -97,6 +100,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
                 {
                     "category": "technical_summary",
                     "title": "指标计算总结",
+                    "cover_image_url": "",
                     "symbol": "",
                     "action_summary": "整理均线与买卖线逻辑",
                     "content": "归纳信号计算和前端展示实现。",
@@ -110,6 +114,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
             created = get_log(db_path, log_id)
             self.assertIsNotNone(created)
             self.assertEqual(created["category"], "technical_summary")
+            self.assertEqual(created["cover_image_url"], "")
 
 
 if __name__ == "__main__":

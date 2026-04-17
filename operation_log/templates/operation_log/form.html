@@ -10,8 +10,8 @@
   <body>
     <main class="log-shell form-shell">
       <nav class="category-tabs">
-        <a class="category-tab {% if (form_data.category or 'operation_record') == 'operation_record' %}active{% endif %}" href="{{ url_for('operation_log.operation_records_page') }}">操作记录</a>
-        <a class="category-tab {% if (form_data.category or 'operation_record') == 'technical_summary' %}active{% endif %}" href="{{ url_for('operation_log.technical_summaries_page') }}">技术总结文档</a>
+        <a class="category-tab {% if (form_data.category or 'technical_summary') == 'operation_record' %}active{% endif %}" href="{{ url_for('operation_log.operation_records_page') }}">操作记录</a>
+        <a class="category-tab {% if (form_data.category or 'technical_summary') == 'technical_summary' %}active{% endif %}" href="{{ url_for('operation_log.technical_summaries_page') }}">技术总结文档</a>
       </nav>
 
       <header class="hero compact">
@@ -37,7 +37,10 @@
 
       <section class="panel editor-panel">
         <form method="post" class="editor-form">
-          <input type="hidden" name="category" value="{{ form_data.category or 'operation_record' }}" />
+          <input type="hidden" name="category" value="{{ form_data.category or 'technical_summary' }}" />
+          {% if page_config.show_cover_image %}
+            <input type="hidden" name="cover_image_url" value="{{ form_data.cover_image_url or '' }}" />
+          {% endif %}
           <div class="grid-two">
             <label>
               标题
@@ -74,7 +77,43 @@
           </div>
           <label>
             {{ page_config.content_label }}
-            <textarea name="content" rows="16" required placeholder="{{ page_config.content_placeholder }}">{{ form_data.content or '' }}</textarea>
+            {% if page_config.show_cover_image %}
+              <div class="editor-toolbar" data-upload-url="{{ url_for('operation_log.upload_technical_summary_image') }}" data-preview-url="{{ url_for('operation_log.preview_technical_summary') }}">
+                <input id="image-alt-text" class="toolbar-input" type="text" placeholder="图片说明，可选" />
+                <input id="image-upload-input" class="toolbar-file-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
+                <button class="button ghost toolbar-button" type="button" id="upload-image-button">上传图片并插入</button>
+                <span id="upload-status" class="toolbar-status"></span>
+              </div>
+              <span class="field-help">首张上传图片会自动作为封面图使用；后续图片只插入正文，不再显示单独的封面图链接输入框。</span>
+            {% endif %}
+            {% if page_config.show_cover_image %}
+              <div class="editor-preview-layout">
+                <div class="editor-pane">
+                  <textarea name="content" rows="20" required placeholder="{{ page_config.content_placeholder }}">{{ form_data.content or '' }}</textarea>
+                </div>
+                <aside class="preview-pane">
+                  <div class="preview-pane-header">
+                    <strong>实时预览</strong>
+                    <span id="preview-status" class="preview-status">准备就绪</span>
+                  </div>
+                  <div class="preview-article">
+                    <figure id="preview-cover" class="article-cover is-hidden">
+                      <img src="" alt="" loading="lazy" />
+                    </figure>
+                    <header class="preview-header">
+                      <h1 id="preview-title">{{ form_data.title or '技术文档标题预览' }}</h1>
+                      <p id="preview-summary" class="summary-box article-summary{% if not form_data.action_summary %} is-hidden{% endif %}">{{ form_data.action_summary or '' }}</p>
+                    </header>
+                    <div id="preview-body" class="article-body markdown-body"></div>
+                  </div>
+                </aside>
+              </div>
+            {% else %}
+              <textarea name="content" rows="16" required placeholder="{{ page_config.content_placeholder }}">{{ form_data.content or '' }}</textarea>
+            {% endif %}
+            {% if page_config.content_help %}
+              <span class="field-help">{{ page_config.content_help }}</span>
+            {% endif %}
           </label>
           <div class="form-actions">
             <button class="button primary" type="submit">{{ submit_label }}</button>
@@ -83,5 +122,8 @@
         </form>
       </section>
     </main>
+    {% if page_config.show_cover_image %}
+      <script src="{{ url_for('operation_log.static', filename='operation_log_form.js') }}"></script>
+    {% endif %}
   </body>
 </html>

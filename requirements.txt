@@ -1,5 +1,7 @@
 Flask==3.1.1
 akshare==1.17.22
+bleach==6.2.0
+Markdown==3.8
 pandas==2.3.1
 tushare==1.4.24
 yfinance==0.2.65

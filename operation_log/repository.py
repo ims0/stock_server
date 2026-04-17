@@ -32,6 +32,7 @@ def ensure_db(db_path: str | Path) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 category TEXT NOT NULL DEFAULT 'operation_record',
                 title TEXT NOT NULL,
+                cover_image_url TEXT NOT NULL DEFAULT '',
                 symbol TEXT NOT NULL DEFAULT '',
                 action_summary TEXT NOT NULL DEFAULT '',
                 content TEXT NOT NULL,
@@ -74,6 +75,10 @@ def ensure_db(db_path: str | Path) -> None:
             conn.execute(
                 "ALTER TABLE operation_logs ADD COLUMN category TEXT NOT NULL DEFAULT 'operation_record'"
             )
+        if "cover_image_url" not in columns:
+            conn.execute(
+                "ALTER TABLE operation_logs ADD COLUMN cover_image_url TEXT NOT NULL DEFAULT ''"
+            )
 
 
 def _connect(db_path: str | Path) -> sqlite3.Connection:
@@ -114,6 +119,7 @@ def _snapshot_payload(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "category": row["category"],
         "title": row["title"],
+        "cover_image_url": row["cover_image_url"],
         "symbol": row["symbol"],
         "action_summary": row["action_summary"],
         "event_date": row["event_date"],
@@ -191,6 +197,7 @@ def create_log(db_path: str | Path, payload: dict[str, Any], username: str) -> i
             INSERT INTO operation_logs (
                 category,
                 title,
+                cover_image_url,
                 symbol,
                 action_summary,
                 content,
@@ -201,11 +208,12 @@ def create_log(db_path: str | Path, payload: dict[str, Any], username: str) -> i
                 updated_by,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["category"],
                 payload["title"],
+                payload["cover_image_url"],
                 payload["symbol"],
                 payload["action_summary"],
                 payload["content"],
@@ -236,6 +244,7 @@ def update_log(db_path: str | Path, log_id: int, payload: dict[str, Any], userna
             UPDATE operation_logs
             SET category = ?,
                 title = ?,
+                cover_image_url = ?,
                 symbol = ?,
                 action_summary = ?,
                 content = ?,
@@ -249,6 +258,7 @@ def update_log(db_path: str | Path, log_id: int, payload: dict[str, Any], userna
             (
                 payload["category"],
                 payload["title"],
+                payload["cover_image_url"],
                 payload["symbol"],
                 payload["action_summary"],
                 payload["content"],

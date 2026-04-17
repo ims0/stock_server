@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from functools import wraps
+from pathlib import Path
+from uuid import uuid4
+from urllib.parse import urlparse
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.utils import secure_filename
 
+from .assets import cleanup_orphaned_uploads, collect_referenced_upload_urls, extract_local_upload_urls, is_local_upload_url
+from .rendering import render_markdown_document
 from .repository import (
     CATEGORY_LABELS,
     STATUS_LABELS,
@@ -35,6 +41,7 @@ CATEGORY_SETTINGS = {
         "summary_placeholder": "如 分批加仓 / 止盈退出 / 策略修正",
         "content_label": "复盘内容",
         "content_placeholder": "记录操作原因、执行过程、结果与后续计划",
+        "show_cover_image": False,
         "event_date_label": "复盘日期",
         "symbol_label": "标的代码",
         "symbol_placeholder": "如 600519 / 00700",
@@ -54,6 +61,10 @@ CATEGORY_SETTINGS = {
         "summary_placeholder": "如 均线算法设计 / 缓存策略优化 / 页面交互总结",
         "content_label": "技术总结内容",
         "content_placeholder": "记录方案背景、实现要点、踩坑、取舍和后续优化方向",
+        "content_help": "支持 Markdown：标题、段落、表格、图片、引用、代码块等都会在详情页按文章样式渲染。",
+        "show_cover_image": True,
+        "cover_image_label": "封面图链接",
+        "cover_image_placeholder": "https://example.com/cover.png",
         "event_date_label": "总结日期",
         "symbol_label": "关联标的",
         "symbol_placeholder": "可选，如 600519；无则留空",
@@ -63,6 +74,9 @@ CATEGORY_SETTINGS = {
         "create_endpoint": "operation_log.create_technical_summary_page",
     },
 }
+
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
 
 def create_operation_log_blueprint(root_path: str) -> Blueprint:
@@ -75,6 +89,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         static_url_path="/static",
     )
     db_path = default_db_path(root_path)
+    upload_root = Path(__file__).resolve().parent / "static" / "uploads"
     ensure_db(db_path)
 
     def login_required(view):
@@ -86,10 +101,42 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
 
         return wrapped
 
+    def api_login_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if "username" not in session:
+                return jsonify({"error": "请先登录"}), 401
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    def save_uploaded_image(image_storage) -> str:
+        filename = secure_filename(image_storage.filename or "")
+        extension = Path(filename).suffix.lower()
+        if extension not in ALLOWED_IMAGE_EXTENSIONS:
+            raise ValueError("仅支持 png、jpg、jpeg、gif、webp 图片")
+
+        image_storage.stream.seek(0, 2)
+        size = image_storage.stream.tell()
+        image_storage.stream.seek(0)
+        if size <= 0:
+            raise ValueError("上传文件不能为空")
+        if size > MAX_IMAGE_SIZE:
+            raise ValueError("图片大小不能超过 5MB")
+
+        today_dir = datetime.now().strftime("%Y%m")
+        target_dir = upload_root / today_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        saved_name = f"{uuid4().hex}{extension}"
+        image_path = target_dir / saved_name
+        image_storage.save(image_path)
+        return url_for("operation_log.static", filename=f"uploads/{today_dir}/{saved_name}")
+
     def normalize_form_payload() -> dict[str, str | None]:
-        category = request.form.get("category", "operation_record").strip()
+        category = request.form.get("category", "technical_summary").strip()
         category_config = CATEGORY_SETTINGS.get(category)
         title = request.form.get("title", "").strip()
+        cover_image_url = request.form.get("cover_image_url", "").strip()
         symbol = request.form.get("symbol", "").strip().upper()
         action_summary = request.form.get("action_summary", "").strip()
         content = request.form.get("content", "").strip()
@@ -107,6 +154,13 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             raise ValueError("请填写复盘日期")
         if status not in STATUS_LABELS:
             raise ValueError("日志状态不合法")
+        if cover_image_url:
+            if not is_local_upload_url(cover_image_url):
+                parsed_cover = urlparse(cover_image_url)
+                if parsed_cover.scheme not in {"http", "https"} or not parsed_cover.netloc:
+                    raise ValueError("封面图链接必须是有效的 http 或 https 地址")
+            elif not cover_image_url.startswith("/operation-log/static/uploads/"):
+                raise ValueError("封面图链接必须是有效的 http 或 https 地址")
 
         published_at = parse_datetime_input(published_at_raw) if published_at_raw.strip() else None
         if status == "published" and not published_at:
@@ -114,6 +168,8 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
 
         if not category_config["show_symbol"]:
             symbol = ""
+        if not category_config["show_cover_image"]:
+            cover_image_url = ""
         if not category_config["show_event_date"]:
             if published_at:
                 event_date = published_at[:10]
@@ -123,6 +179,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         return {
             "category": category,
             "title": title,
+            "cover_image_url": cover_image_url,
             "symbol": symbol,
             "action_summary": action_summary,
             "content": content,
@@ -162,7 +219,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         )
 
     def render_form_page(page_title: str, submit_label: str, form_data: dict[str, object]):
-        category = str(form_data.get("category") or "operation_record")
+        category = str(form_data.get("category") or "technical_summary")
         config = CATEGORY_SETTINGS[category]
         return render_template(
             "operation_log/form.html",
@@ -174,10 +231,27 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             to_datetime_local=to_datetime_local,
         )
 
+    def cleanup_removed_images(previous_log: dict[str, object], *, exclude_log_id: int | None = None) -> None:
+        if str(previous_log.get("category")) != "technical_summary":
+            return
+
+        candidates = extract_local_upload_urls(
+            str(previous_log.get("content") or ""),
+            str(previous_log.get("cover_image_url") or ""),
+        )
+        if not candidates:
+            return
+
+        logs = list_logs(db_path, scope="all")
+        if exclude_log_id is not None:
+            logs = [log for log in logs if int(log.get("id", 0)) != exclude_log_id]
+        referenced = collect_referenced_upload_urls(logs)
+        cleanup_orphaned_uploads(upload_root, candidates, referenced)
+
     @blueprint.get("/")
     @login_required
     def list_logs_page():
-        return redirect(url_for("operation_log.operation_records_page"))
+        return redirect(url_for("operation_log.technical_summaries_page"))
 
     @blueprint.get("/records")
     @login_required
@@ -195,6 +269,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         form_data = {
             "category": "operation_record",
             "title": "",
+            "cover_image_url": "",
             "symbol": "",
             "action_summary": "",
             "content": "",
@@ -225,6 +300,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         form_data = {
             "category": "technical_summary",
             "title": "",
+            "cover_image_url": "",
             "symbol": "",
             "action_summary": "",
             "content": "",
@@ -249,6 +325,30 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             form_data=form_data,
         )
 
+    @blueprint.post("/technical-summaries/upload-image")
+    @api_login_required
+    def upload_technical_summary_image():
+        image = request.files.get("image")
+        alt_text = request.form.get("alt_text", "").strip()
+        if image is None:
+            return jsonify({"error": "请选择要上传的图片"}), 400
+
+        try:
+            image_url = save_uploaded_image(image)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        alt = alt_text or Path(image.filename or "image").stem or "image"
+        markdown_text = f"![{alt}]({image_url})"
+        return jsonify({"url": image_url, "markdown": markdown_text})
+
+    @blueprint.post("/technical-summaries/preview")
+    @api_login_required
+    def preview_technical_summary():
+        content = request.form.get("content", "")
+        rendered = render_markdown_document(content)
+        return jsonify({"html": rendered.html, "toc_html": rendered.toc_html})
+
     @blueprint.get("/<int:log_id>")
     @login_required
     def detail_page(log_id: int):
@@ -256,9 +356,15 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         if log is None:
             abort(404)
 
+        markdown_result = None
+        if log["category"] == "technical_summary":
+            markdown_result = render_markdown_document(log["content"])
+
         return render_template(
             "operation_log/detail.html",
             log=log,
+            rendered_content=(markdown_result.html if markdown_result else None),
+            rendered_toc=(markdown_result.toc_html if markdown_result else ""),
             audits=list_audits(db_path, log_id),
             page_config=CATEGORY_SETTINGS[log["category"]],
             category_labels=CATEGORY_LABELS,
@@ -274,6 +380,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             abort(404)
 
         form_data = dict(log)
+        previous_log = dict(log)
         if request.method == "POST":
             form_data = request.form.to_dict()
             try:
@@ -283,6 +390,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             else:
                 if not updated:
                     abort(404)
+                cleanup_removed_images(previous_log)
                 flash(f"{CATEGORY_LABELS[log['category']]}已更新", "success")
                 return redirect(url_for("operation_log.detail_page", log_id=log_id))
 
@@ -295,11 +403,14 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
     @blueprint.post("/<int:log_id>/delete")
     @login_required
     def delete_page(log_id: int):
+        existing_log = get_log(db_path, log_id)
+        if existing_log is None:
+            abort(404)
         deleted = delete_log(db_path, log_id, session.get("username", ""))
         if not deleted:
             abort(404)
-        log = get_log(db_path, log_id)
-        flash(f"{CATEGORY_LABELS[log['category']]}已删除", "success")
-        return redirect(url_for(CATEGORY_SETTINGS[log["category"]]["list_endpoint"]))
+        cleanup_removed_images(existing_log, exclude_log_id=log_id)
+        flash(f"{CATEGORY_LABELS[existing_log['category']]}已删除", "success")
+        return redirect(url_for(CATEGORY_SETTINGS[existing_log["category"]]["list_endpoint"]))
 
     return blueprint

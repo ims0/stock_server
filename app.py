@@ -33,8 +33,32 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from config import TRADE_FEES
 from operation_log import create_operation_log_blueprint
 
+
+def _load_or_create_secret_key(root_path: str) -> str:
+    env_secret = os.environ.get("SECRET_KEY", "").strip()
+    if env_secret:
+        return env_secret
+
+    secret_path = os.path.join(root_path, "data", "flask_secret_key.txt")
+    os.makedirs(os.path.dirname(secret_path), exist_ok=True)
+
+    try:
+        with open(secret_path, "r", encoding="utf-8") as handle:
+            existing = handle.read().strip()
+    except FileNotFoundError:
+        existing = ""
+
+    if existing:
+        return existing
+
+    generated = os.urandom(24).hex()
+    with open(secret_path, "w", encoding="utf-8") as handle:
+        handle.write(generated)
+    return generated
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24).hex()
+app.secret_key = _load_or_create_secret_key(app.root_path)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
