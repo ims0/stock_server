@@ -58,10 +58,17 @@
                 <input type="date" name="event_date" value="{{ form_data.event_date or '' }}" required />
               </label>
             {% endif %}
-            <label>
-              发布时间
-              <input type="datetime-local" name="published_at" value="{{ to_datetime_local(form_data.published_at) if form_data.published_at is string else form_data.published_at or '' }}" />
-            </label>
+            {% if page_config.show_published_at_input %}
+              <label>
+                发布时间
+                <input type="datetime-local" name="published_at" value="{{ to_datetime_local(form_data.published_at) if form_data.published_at is string else form_data.published_at or '' }}" />
+              </label>
+            {% else %}
+              <label>
+                发布时间
+                <input type="text" value="保存后自动填充" disabled />
+              </label>
+            {% endif %}
             <label>
               状态
               <select name="status">

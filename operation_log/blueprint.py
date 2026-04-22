@@ -46,6 +46,7 @@ CATEGORY_SETTINGS = {
         "symbol_label": "标的代码",
         "symbol_placeholder": "如 600519 / 00700",
         "show_event_date": True,
+        "show_published_at_input": True,
         "show_symbol": True,
         "list_endpoint": "operation_log.operation_records_page",
         "create_endpoint": "operation_log.create_operation_record_page",
@@ -69,6 +70,7 @@ CATEGORY_SETTINGS = {
         "symbol_label": "关联标的",
         "symbol_placeholder": "可选，如 600519；无则留空",
         "show_event_date": False,
+        "show_published_at_input": False,
         "show_symbol": False,
         "list_endpoint": "operation_log.technical_summaries_page",
         "create_endpoint": "operation_log.create_technical_summary_page",
@@ -132,7 +134,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         image_storage.save(image_path)
         return url_for("operation_log.static", filename=f"uploads/{today_dir}/{saved_name}")
 
-    def normalize_form_payload() -> dict[str, str | None]:
+    def normalize_form_payload(existing_log: dict[str, object] | None = None) -> dict[str, str | None]:
         category = request.form.get("category", "technical_summary").strip()
         category_config = CATEGORY_SETTINGS.get(category)
         title = request.form.get("title", "").strip()
@@ -163,7 +165,13 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
                 raise ValueError("封面图链接必须是有效的 http 或 https 地址")
 
         published_at = parse_datetime_input(published_at_raw) if published_at_raw.strip() else None
-        if status == "published" and not published_at:
+        if not category_config["show_published_at_input"]:
+            existing_published_at = str(existing_log.get("published_at") or "").strip() if existing_log else ""
+            if status == "published":
+                published_at = existing_published_at or parse_datetime_input(datetime.now().strftime("%Y-%m-%dT%H:%M"))
+            else:
+                published_at = existing_published_at if existing_published_at else None
+        elif status == "published" and not published_at:
             published_at = parse_datetime_input(datetime.now().strftime("%Y-%m-%dT%H:%M"))
 
         if not category_config["show_symbol"]:
@@ -384,7 +392,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
         if request.method == "POST":
             form_data = request.form.to_dict()
             try:
-                updated = update_log(db_path, log_id, normalize_form_payload(), session.get("username", ""))
+                updated = update_log(db_path, log_id, normalize_form_payload(log), session.get("username", ""))
             except ValueError as exc:
                 flash(str(exc), "error")
             else:
