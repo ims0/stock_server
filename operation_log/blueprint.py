@@ -46,7 +46,7 @@ CATEGORY_SETTINGS = {
         "symbol_label": "标的代码",
         "symbol_placeholder": "如 600519 / 00700",
         "show_event_date": True,
-        "show_published_at_input": True,
+        "show_published_at_input": False,
         "show_symbol": True,
         "list_endpoint": "operation_log.operation_records_page",
         "create_endpoint": "operation_log.create_operation_record_page",
@@ -226,7 +226,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             status_labels=STATUS_LABELS,
         )
 
-    def render_form_page(page_title: str, submit_label: str, form_data: dict[str, object]):
+    def render_form_page(page_title: str, submit_label: str, form_data: dict[str, object], is_new_form: bool = False):
         category = str(form_data.get("category") or "technical_summary")
         config = CATEGORY_SETTINGS[category]
         return render_template(
@@ -237,6 +237,7 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             page_config=config,
             status_labels=STATUS_LABELS,
             to_datetime_local=to_datetime_local,
+            is_new_form=is_new_form,
         )
 
     def cleanup_removed_images(previous_log: dict[str, object], *, exclude_log_id: int | None = None) -> None:
@@ -271,67 +272,51 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
     def technical_summaries_page():
         return render_category_list("technical_summary")
 
-    @blueprint.route("/records/new", methods=["GET", "POST"])
+    @blueprint.route("/new", methods=["GET", "POST"])
+    @login_required
+    def create_page():
+        category = request.args.get("category", "technical_summary")
+        if category not in CATEGORY_SETTINGS:
+            category = "technical_summary"
+        form_data: dict[str, object] = {
+            "category": category,
+            "title": "",
+            "cover_image_url": "",
+            "symbol": "",
+            "action_summary": "",
+            "content": "",
+            "event_date": "",
+            "published_at": "",
+            "status": "draft",
+        }
+
+        if request.method == "POST":
+            form_data = request.form.to_dict()
+            post_category = str(form_data.get("category") or "technical_summary")
+            try:
+                log_id = create_log(db_path, normalize_form_payload(), session.get("username", ""))
+            except ValueError as exc:
+                flash(str(exc), "error")
+            else:
+                flash(f"{CATEGORY_LABELS.get(post_category, '日志')}已创建", "success")
+                return redirect(url_for("operation_log.detail_page", log_id=log_id))
+
+        return render_form_page(
+            page_title=CATEGORY_SETTINGS[category]["new_title"],
+            submit_label="",
+            form_data=form_data,
+            is_new_form=True,
+        )
+
+    @blueprint.get("/records/new")
     @login_required
     def create_operation_record_page():
-        form_data = {
-            "category": "operation_record",
-            "title": "",
-            "cover_image_url": "",
-            "symbol": "",
-            "action_summary": "",
-            "content": "",
-            "event_date": "",
-            "published_at": "",
-            "status": "draft",
-        }
+        return redirect(url_for("operation_log.create_page", category="operation_record"))
 
-        if request.method == "POST":
-            form_data = request.form.to_dict()
-            try:
-                log_id = create_log(db_path, normalize_form_payload(), session.get("username", ""))
-            except ValueError as exc:
-                flash(str(exc), "error")
-            else:
-                flash("操作记录已创建", "success")
-                return redirect(url_for("operation_log.detail_page", log_id=log_id))
-
-        return render_form_page(
-            page_title=CATEGORY_SETTINGS["operation_record"]["new_title"],
-            submit_label=CATEGORY_SETTINGS["operation_record"]["submit_label"],
-            form_data=form_data,
-        )
-
-    @blueprint.route("/technical-summaries/new", methods=["GET", "POST"])
+    @blueprint.get("/technical-summaries/new")
     @login_required
     def create_technical_summary_page():
-        form_data = {
-            "category": "technical_summary",
-            "title": "",
-            "cover_image_url": "",
-            "symbol": "",
-            "action_summary": "",
-            "content": "",
-            "event_date": "",
-            "published_at": "",
-            "status": "draft",
-        }
-
-        if request.method == "POST":
-            form_data = request.form.to_dict()
-            try:
-                log_id = create_log(db_path, normalize_form_payload(), session.get("username", ""))
-            except ValueError as exc:
-                flash(str(exc), "error")
-            else:
-                flash("技术总结文档已创建", "success")
-                return redirect(url_for("operation_log.detail_page", log_id=log_id))
-
-        return render_form_page(
-            page_title=CATEGORY_SETTINGS["technical_summary"]["new_title"],
-            submit_label=CATEGORY_SETTINGS["technical_summary"]["submit_label"],
-            form_data=form_data,
-        )
+        return redirect(url_for("operation_log.create_page", category="technical_summary"))
 
     @blueprint.post("/technical-summaries/upload-image")
     @api_login_required
