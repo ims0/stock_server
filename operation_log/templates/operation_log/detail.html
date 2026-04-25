@@ -9,10 +9,6 @@
   </head>
   <body>
     <main class="log-shell detail-shell">
-      <nav class="category-tabs">
-        <a class="category-tab {% if log.category == 'operation_record' %}active{% endif %}" href="{{ url_for('operation_log.operation_records_page') }}">操作记录</a>
-        <a class="category-tab {% if log.category == 'technical_summary' %}active{% endif %}" href="{{ url_for('operation_log.technical_summaries_page') }}">技术总结文档</a>
-      </nav>
 
       <header class="hero compact">
         <div>

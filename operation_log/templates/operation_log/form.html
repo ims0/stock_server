@@ -9,10 +9,6 @@
   </head>
   <body>
     <main class="log-shell form-shell">
-      <nav class="category-tabs">
-        <a class="category-tab {% if (form_data.category or 'technical_summary') == 'operation_record' %}active{% endif %}" href="{{ url_for('operation_log.operation_records_page') }}">操作记录</a>
-        <a class="category-tab {% if (form_data.category or 'technical_summary') == 'technical_summary' %}active{% endif %}" href="{{ url_for('operation_log.technical_summaries_page') }}">技术总结文档</a>
-      </nav>
 
       <header class="hero compact">
         <div>
@@ -37,19 +33,7 @@
 
       <section class="panel editor-panel">
         <form method="post" class="editor-form">
-          {% if is_new_form %}
-            <div class="category-tabs" style="margin-bottom:24px;">
-              <label class="category-tab{% if (form_data.category or 'technical_summary') == 'technical_summary' %} active{% endif %}" style="cursor:pointer;">
-                <input type="radio" name="_cat" value="technical_summary" style="display:none;" {% if (form_data.category or 'technical_summary') == 'technical_summary' %}checked{% endif %} onchange="location.href='{{ url_for('operation_log.create_page') }}?category=technical_summary'" />
-                技术总结文档
-              </label>
-              <label class="category-tab{% if (form_data.category or 'technical_summary') == 'operation_record' %} active{% endif %}" style="cursor:pointer;">
-                <input type="radio" name="_cat" value="operation_record" style="display:none;" {% if (form_data.category or 'technical_summary') == 'operation_record' %}checked{% endif %} onchange="location.href='{{ url_for('operation_log.create_page') }}?category=operation_record'" />
-                操作记录
-              </label>
-            </div>
-          {% endif %}
-          <input type="hidden" name="category" value="{{ form_data.category or 'technical_summary' }}" />
+          <input type="hidden" name="category" value="technical_summary" />
           {% if page_config.show_cover_image %}
             <input type="hidden" name="cover_image_url" value="{{ form_data.cover_image_url or '' }}" />
           {% endif %}
@@ -74,6 +58,17 @@
               {{ page_config.summary_label }}
               <input type="text" name="action_summary" value="{{ form_data.action_summary or '' }}" placeholder="{{ page_config.summary_placeholder }}" />
             </label>
+            {% if page_config.show_published_at_input %}
+              <label>
+                发布时间
+                <input type="datetime-local" name="published_at" value="{{ to_datetime_local(form_data.published_at) }}" />
+              </label>
+            {% else %}
+              <label>
+                发布时间
+                <input type="text" value="保存后自动填充" disabled />
+              </label>
+            {% endif %}
           </div>
           <label>
             {{ page_config.content_label }}

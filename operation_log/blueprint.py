@@ -30,31 +30,10 @@ from .repository import (
 )
 
 CATEGORY_SETTINGS = {
-    "operation_record": {
-        "list_title": "操作记录",
-        "hero_title": "操作记录复盘台",
-        "hero_copy": "集中记录交易动作、复盘日期、发布时间和修改轨迹，便于后续分析与回溯。",
-        "new_title": "新建操作记录",
-        "edit_title": "编辑操作记录",
-        "submit_label": "保存操作记录",
-        "summary_label": "操作摘要",
-        "summary_placeholder": "如 分批加仓 / 止盈退出 / 策略修正",
-        "content_label": "复盘内容",
-        "content_placeholder": "记录操作原因、执行过程、结果与后续计划",
-        "show_cover_image": False,
-        "event_date_label": "复盘日期",
-        "symbol_label": "标的代码",
-        "symbol_placeholder": "如 600519 / 00700",
-        "show_event_date": True,
-        "show_published_at_input": False,
-        "show_symbol": True,
-        "list_endpoint": "operation_log.operation_records_page",
-        "create_endpoint": "operation_log.create_operation_record_page",
-    },
     "technical_summary": {
         "list_title": "技术总结文档",
-        "hero_title": "技术总结文档台",
-        "hero_copy": "集中沉淀实现方案、技术结论、问题复盘和设计经验，和交易操作记录分开管理。",
+        "hero_title": "复盘文档",
+        "hero_copy": "",
         "new_title": "新建技术总结文档",
         "edit_title": "编辑技术总结文档",
         "submit_label": "保存技术文档",
@@ -262,11 +241,6 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
     def list_logs_page():
         return redirect(url_for("operation_log.technical_summaries_page"))
 
-    @blueprint.get("/records")
-    @login_required
-    def operation_records_page():
-        return render_category_list("operation_record")
-
     @blueprint.get("/technical-summaries")
     @login_required
     def technical_summaries_page():
@@ -308,15 +282,37 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
             is_new_form=True,
         )
 
-    @blueprint.get("/records/new")
-    @login_required
-    def create_operation_record_page():
-        return redirect(url_for("operation_log.create_page", category="operation_record"))
-
-    @blueprint.get("/technical-summaries/new")
+    @blueprint.route("/technical-summaries/new", methods=["GET", "POST"])
     @login_required
     def create_technical_summary_page():
-        return redirect(url_for("operation_log.create_page", category="technical_summary"))
+        form_data: dict[str, object] = {
+            "category": "technical_summary",
+            "title": "",
+            "cover_image_url": "",
+            "symbol": "",
+            "action_summary": "",
+            "content": "",
+            "event_date": "",
+            "published_at": "",
+            "status": "draft",
+        }
+
+        if request.method == "POST":
+            form_data = request.form.to_dict()
+            try:
+                log_id = create_log(db_path, normalize_form_payload(), session.get("username", ""))
+            except ValueError as exc:
+                flash(str(exc), "error")
+            else:
+                flash(f"{CATEGORY_LABELS['technical_summary']}已创建", "success")
+                return redirect(url_for("operation_log.detail_page", log_id=log_id))
+
+        return render_form_page(
+            page_title=CATEGORY_SETTINGS["technical_summary"]["new_title"],
+            submit_label="",
+            form_data=form_data,
+            is_new_form=True,
+        )
 
     @blueprint.post("/technical-summaries/upload-image")
     @api_login_required

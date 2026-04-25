@@ -14,7 +14,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
             log_id = create_log(
                 db_path,
                 {
-                    "category": "operation_record",
+                    "category": "technical_summary",
                     "title": "首次建仓复盘",
                     "cover_image_url": "",
                     "symbol": "600519",
@@ -30,7 +30,7 @@ class OperationLogRepositoryTestCase(unittest.TestCase):
             created = get_log(db_path, log_id)
             self.assertIsNotNone(created)
             self.assertEqual(created["title"], "首次建仓复盘")
-            self.assertEqual(created["category"], "operation_record")
+            self.assertEqual(created["category"], "technical_summary")
 
             updated = update_log(
                 db_path,

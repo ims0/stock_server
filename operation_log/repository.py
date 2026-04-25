@@ -13,7 +13,6 @@ STATUS_LABELS = {
 }
 
 CATEGORY_LABELS = {
-    "operation_record": "操作记录",
     "technical_summary": "技术总结文档",
 }
 
@@ -30,7 +29,7 @@ def ensure_db(db_path: str | Path) -> None:
             """
             CREATE TABLE IF NOT EXISTS operation_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category TEXT NOT NULL DEFAULT 'operation_record',
+                category TEXT NOT NULL DEFAULT 'technical_summary',
                 title TEXT NOT NULL,
                 cover_image_url TEXT NOT NULL DEFAULT '',
                 symbol TEXT NOT NULL DEFAULT '',
@@ -73,7 +72,7 @@ def ensure_db(db_path: str | Path) -> None:
         }
         if "category" not in columns:
             conn.execute(
-                "ALTER TABLE operation_logs ADD COLUMN category TEXT NOT NULL DEFAULT 'operation_record'"
+                "ALTER TABLE operation_logs ADD COLUMN category TEXT NOT NULL DEFAULT 'technical_summary'"
             )
         if "cover_image_url" not in columns:
             conn.execute(
@@ -309,7 +308,7 @@ def list_audits(db_path: str | Path, log_id: int) -> list[dict[str, Any]]:
     for row in rows:
         item = dict(row)
         item["snapshot"] = json.loads(item["snapshot_json"])
-        item["snapshot"].setdefault("category", "operation_record")
+        item["snapshot"].setdefault("category", "technical_summary")
         items.append(item)
     return items
 
@@ -345,7 +344,7 @@ def recent_audits_by_category(db_path: str | Path, *, category: str = "", limit:
     for row in rows:
         item = dict(row)
         item["snapshot"] = json.loads(item["snapshot_json"])
-        item["snapshot"].setdefault("category", "operation_record")
+        item["snapshot"].setdefault("category", "technical_summary")
         items.append(item)
     return items
 
