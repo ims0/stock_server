@@ -14,6 +14,9 @@ STATUS_LABELS = {
 
 CATEGORY_LABELS = {
     "technical_summary": "技术总结文档",
+    "trading_rules": "交易规则",
+    "market_strategy": "市场策略",
+    "trend_forecast": "趋势预测",
 }
 
 
@@ -164,9 +167,9 @@ def list_logs(
         params.append(category)
 
     if keyword:
-        clauses.append("(title LIKE ? OR symbol LIKE ? OR action_summary LIKE ? OR content LIKE ?)")
+        clauses.append("(title LIKE ? OR symbol LIKE ? OR action_summary LIKE ? OR content LIKE ? OR published_at LIKE ? OR event_date LIKE ?)")
         fuzzy = f"%{keyword}%"
-        params.extend([fuzzy, fuzzy, fuzzy, fuzzy])
+        params.extend([fuzzy, fuzzy, fuzzy, fuzzy, fuzzy, fuzzy])
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     sql = f"""
@@ -349,6 +352,35 @@ def recent_audits_by_category(db_path: str | Path, *, category: str = "", limit:
     return items
 
 
+def published_dates_in_month(
+    db_path: str | Path,
+    year: int,
+    month: int,
+    *,
+    category: str = "",
+) -> set[int]:
+    """Return set of days (1-31) that have at least one published article in the given month."""
+    prefix = f"{year:04d}-{month:02d}-"
+    clauses = ["deleted_at IS NULL", "status = 'published'", "published_at LIKE ?"]
+    params: list[Any] = [f"{prefix}%"]
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    where_sql = "WHERE " + " AND ".join(clauses)
+    sql = f"SELECT published_at FROM operation_logs {where_sql}"
+    with _connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    days: set[int] = set()
+    for row in rows:
+        val = row[0]
+        if val and len(val) >= 10:
+            try:
+                days.add(int(val[8:10]))
+            except ValueError:
+                pass
+    return days
+
+
 def dashboard_stats(db_path: str | Path, *, category: str = "") -> dict[str, int]:
     clauses: list[str] = []
     params: list[Any] = []
@@ -383,3 +415,57 @@ def dashboard_stats(db_path: str | Path, *, category: str = "") -> dict[str, int
         "draft_total": int(draft_total),
         "deleted_total": int(deleted_total),
     }
+
+
+def monthly_archives(
+    db_path: str | Path,
+    *,
+    category: str = "",
+) -> list[dict[str, Any]]:
+    """Return published doc counts grouped by year-month, newest first."""
+    clauses = ["deleted_at IS NULL", "status = 'published'", "published_at IS NOT NULL"]
+    params: list[Any] = []
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    where_sql = "WHERE " + " AND ".join(clauses)
+    sql = f"""
+        SELECT substr(published_at, 1, 7) AS ym, COUNT(*) AS cnt
+        FROM operation_logs
+        {where_sql}
+        GROUP BY ym
+        ORDER BY ym DESC
+    """
+    with _connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    result = []
+    for row in rows:
+        ym = row[0] or ""
+        if len(ym) == 7:
+            year, month = int(ym[:4]), int(ym[5:7])
+            result.append({"year": year, "month": month, "ym": ym, "count": int(row[1])})
+    return result
+
+
+def symbol_groups(
+    db_path: str | Path,
+    *,
+    category: str = "",
+) -> list[dict[str, Any]]:
+    """Return doc counts grouped by symbol (non-empty), sorted by count desc."""
+    clauses = ["deleted_at IS NULL", "status = 'published'", "symbol != ''"]
+    params: list[Any] = []
+    if category:
+        clauses.append("category = ?")
+        params.append(category)
+    where_sql = "WHERE " + " AND ".join(clauses)
+    sql = f"""
+        SELECT symbol, COUNT(*) AS cnt
+        FROM operation_logs
+        {where_sql}
+        GROUP BY symbol
+        ORDER BY cnt DESC, symbol ASC
+    """
+    with _connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [{"symbol": row[0], "count": int(row[1])} for row in rows]
