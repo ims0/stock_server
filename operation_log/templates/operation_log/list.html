@@ -12,12 +12,10 @@
 
       <header class="hero">
         <div>
-          <p class="eyebrow">Operation Review Log</p>
           <h1>{{ page_config.hero_title }}</h1>
-          <p class="hero-copy">{{ page_config.hero_copy }}</p>
         </div>
         <div class="hero-actions">
-          <a class="button ghost" href="{{ url_for('index') }}">返回查询</a>
+          <a class="button ghost" href="{{ url_for('index') }}">股票K线图</a>
           <a class="button ghost" href="{{ url_for('cache_page') }}">缓存管理</a>
           <a class="button primary" href="{{ url_for(page_config.create_endpoint) }}">新建{{ page_config.list_title }}</a>
         </div>
@@ -112,9 +110,6 @@
                   <tr>
                     <td>
                       <a class="table-link" href="{{ url_for('operation_log.detail_page', log_id=log.id) }}">{{ log.title }}</a>
-                      {% if log.action_summary %}
-                        <div class="table-note">{{ log.action_summary }}</div>
-                      {% endif %}
                     </td>
                     {% if page_config.show_symbol %}
                       <td>{{ log.symbol or '-' }}</td>
@@ -149,28 +144,6 @@
           </div>
         </section>
 
-        <aside class="panel side-panel">
-          <div class="section-head">
-            <div>
-              <h2>最近操作</h2>
-              <p>记录每次新建、编辑、删除，方便复盘修改轨迹。</p>
-            </div>
-          </div>
-          <div class="timeline">
-            {% for item in recent_actions %}
-              <article class="timeline-item">
-                <div class="timeline-meta">
-                  <span class="action-tag {{ item.action }}">{{ item.action }}</span>
-                  <span>{{ item.username }}</span>
-                </div>
-                <a class="timeline-title" href="{{ url_for('operation_log.detail_page', log_id=item.log_id) }}">{{ item.title }}</a>
-                <p>{{ operation_log_display_datetime(item.happened_at) }}</p>
-              </article>
-            {% else %}
-              <p class="empty-side">日志系统已初始化，尚未有操作记录。</p>
-            {% endfor %}
-          </div>
-        </aside>
       </section>
     </main>
   </body>

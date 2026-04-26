@@ -75,13 +75,6 @@
             </div>
           </div>
 
-          {% if log.action_summary %}
-            <div class="summary-box {% if log.category == 'technical_summary' %}article-summary{% endif %}">
-              <span class="meta-label">{{ page_config.summary_label }}</span>
-              <p>{{ log.action_summary }}</p>
-            </div>
-          {% endif %}
-
           {% if log.category == 'technical_summary' %}
             <article class="article-body markdown-body">{{ rendered_content|safe }}</article>
           {% else %}

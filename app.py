@@ -166,7 +166,7 @@ def _get_next_url() -> str:
     candidate = request.args.get("next") or request.form.get("next") or ""
     if _is_safe_next_url(candidate):
         return candidate
-    return url_for("index")
+    return url_for("operation_log.technical_summaries_page")
 
 
 def login_required(view):
@@ -1730,7 +1730,7 @@ def account_page():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "username" in session:
-        return redirect(url_for("index"))
+        return redirect(url_for("operation_log.technical_summaries_page"))
 
     error = ""
     if request.method == "POST":

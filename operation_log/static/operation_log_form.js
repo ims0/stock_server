@@ -10,9 +10,7 @@ if (toolbar) {
   const contentField = document.querySelector('textarea[name="content"]');
   const coverField = document.querySelector('input[name="cover_image_url"]');
   const titleField = document.querySelector('input[name="title"]');
-  const summaryField = document.querySelector('input[name="action_summary"]');
   const previewTitle = document.getElementById('preview-title');
-  const previewSummary = document.getElementById('preview-summary');
   const previewBody = document.getElementById('preview-body');
   const previewCover = document.getElementById('preview-cover');
   const previewCoverImage = previewCover?.querySelector('img');
@@ -48,11 +46,6 @@ if (toolbar) {
   const syncPreviewMeta = () => {
     if (previewTitle && titleField) {
       previewTitle.textContent = titleField.value.trim() || '技术文档标题预览';
-    }
-    if (previewSummary && summaryField) {
-      const summaryText = summaryField.value.trim();
-      previewSummary.textContent = summaryText;
-      previewSummary.classList.toggle('is-hidden', !summaryText);
     }
     if (previewCover && previewCoverImage && coverField) {
       const coverUrl = coverField.value.trim();
@@ -159,7 +152,6 @@ if (toolbar) {
   });
 
   titleField?.addEventListener('input', syncPreviewMeta);
-  summaryField?.addEventListener('input', syncPreviewMeta);
   coverField?.addEventListener('input', syncPreviewMeta);
   contentField?.addEventListener('input', schedulePreview);
 

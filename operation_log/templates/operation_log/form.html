@@ -54,10 +54,6 @@
                 <input type="date" name="event_date" value="{{ form_data.event_date or '' }}" required />
               </label>
             {% endif %}
-            <label>
-              {{ page_config.summary_label }}
-              <input type="text" name="action_summary" value="{{ form_data.action_summary or '' }}" placeholder="{{ page_config.summary_placeholder }}" />
-            </label>
             {% if page_config.show_published_at_input %}
               <label>
                 发布时间
@@ -97,7 +93,6 @@
                     </figure>
                     <header class="preview-header">
                       <h1 id="preview-title">{{ form_data.title or '技术文档标题预览' }}</h1>
-                      <p id="preview-summary" class="summary-box article-summary{% if not form_data.action_summary %} is-hidden{% endif %}">{{ form_data.action_summary or '' }}</p>
                     </header>
                     <div id="preview-body" class="article-body markdown-body"></div>
                   </div>
