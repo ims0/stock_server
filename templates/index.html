@@ -9,6 +9,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
   </head>
   <body>
+    <nav class="topnav">
+      <a class="topnav-btn" href="{{ url_for('operation_log.technical_summaries_page') }}">文档</a>
+      <a class="topnav-btn active" href="{{ url_for('index') }}">K线图</a>
+      <div class="topnav-user">
+        <button class="topnav-btn topnav-user-btn" type="button">{{ current_user }} ▾</button>
+        <div class="topnav-dropdown">
+          <a href="{{ url_for('account_page') }}">密码管理</a>
+          <a href="{{ url_for('logout') }}">退出登录</a>
+        </div>
+      </div>
+    </nav>
     <main class="container">
       <header class="page-header">
         <div>
@@ -16,10 +27,7 @@
           <p class="subtle">当前用户：{{ current_user }}</p>
         </div>
         <div class="header-actions">
-          <a class="link-button ghost" href="{{ url_for('account_page') }}">密码管理</a>
-          <a class="link-button ghost" href="{{ url_for('operation_log.list_logs_page') }}">操作日志</a>
           <a class="link-button" href="{{ url_for('cache_page') }}">缓存管理</a>
-          <a class="link-button danger" href="{{ url_for('logout') }}">退出登录</a>
         </div>
       </header>
 

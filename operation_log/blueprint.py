@@ -35,7 +35,7 @@ CATEGORY_SETTINGS = {
         "hero_title": "复盘文档",
         "hero_copy": "",
         "new_title": "新建技术总结文档",
-        "edit_title": "编辑技术总结文档",
+        "edit_title": "编辑文档",
         "submit_label": "保存技术文档",
         "summary_label": "主题摘要",
         "summary_placeholder": "如 均线算法设计 / 缓存策略优化 / 页面交互总结",

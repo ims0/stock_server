@@ -8,6 +8,17 @@
     <link rel="stylesheet" href="{{ url_for('operation_log.static', filename='operation_log.css') }}" />
   </head>
   <body>
+    <nav class="topnav">
+      <a class="topnav-btn active" href="{{ url_for('operation_log.technical_summaries_page') }}">文档</a>
+      <a class="topnav-btn" href="{{ url_for('index') }}">K线图</a>
+      <div class="topnav-user">
+        <button class="topnav-btn topnav-user-btn" type="button">{{ current_user }} ▾</button>
+        <div class="topnav-dropdown">
+          <a href="{{ url_for('account_page') }}">密码管理</a>
+          <a href="{{ url_for('logout') }}">退出登录</a>
+        </div>
+      </div>
+    </nav>
     <main class="log-shell">
 
       <header class="hero">
@@ -15,9 +26,6 @@
           <h1>{{ page_config.hero_title }}</h1>
         </div>
         <div class="hero-actions">
-          <a class="button ghost" href="{{ url_for('index') }}">股票K线图</a>
-          <a class="button ghost" href="{{ url_for('cache_page') }}">缓存管理</a>
-          <a class="button primary" href="{{ url_for(page_config.create_endpoint) }}">新建{{ page_config.list_title }}</a>
         </div>
       </header>
 
@@ -76,6 +84,7 @@
           <div class="filter-actions">
             <button class="button primary" type="submit">筛选</button>
             <a class="button ghost" href="{{ url_for(page_config.list_endpoint) }}">重置</a>
+            <a class="button primary" href="{{ url_for(page_config.create_endpoint) }}">新建文档</a>
           </div>
         </form>
       </section>
