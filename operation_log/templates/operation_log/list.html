@@ -143,6 +143,23 @@
           </form>
         </section>
 
+        {% if not category %}
+        <section class="panel table-panel">
+          <div class="section-head">
+            <div>
+              <h2>全部文档分类</h2>
+            </div>
+          </div>
+          <div class="category-list">
+            <ul>
+              <li><a href="{{ url_for('operation_log.technical_summaries_page') }}">复盘文档</a></li>
+              <li><a href="{{ url_for('operation_log.trading_rules_page') }}">交易规则</a></li>
+              <li><a href="{{ url_for('operation_log.market_strategy_page') }}">市场策略</a></li>
+              <li><a href="{{ url_for('operation_log.trend_forecast_page') }}">趋势预测</a></li>
+            </ul>
+          </div>
+        </section>
+        {% else %}
         <section class="panel table-panel">
           <div class="section-head">
             <div>
@@ -162,7 +179,7 @@
                   {% endif %}
                   <th>发布时间</th>
                   <th>状态</th>
-                  <th>最近更新</th>
+                  <th>文档分类</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -180,7 +197,7 @@
                     {% endif %}
                     <td>{{ operation_log_display_datetime(log.published_at) }}</td>
                     <td><span class="status-pill {{ log.status }}">{{ status_labels[log.status] }}</span></td>
-                    <td>{{ operation_log_display_datetime(log.updated_at) }}</td>
+                    <td>{{ log.category or '-' }}</td>
                     <td>
                       <div class="row-actions">
                         <a class="button tiny ghost" href="{{ url_for('operation_log.detail_page', log_id=log.id) }}">查看</a>
@@ -204,6 +221,7 @@
             </table>
           </div>
         </section>
+        {% endif %}
 
       </main>
     </div>

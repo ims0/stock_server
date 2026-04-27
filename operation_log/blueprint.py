@@ -350,7 +350,60 @@ def create_operation_log_blueprint(root_path: str) -> Blueprint:
     @blueprint.get("/")
     @login_required
     def list_logs_page():
-        return redirect(url_for("operation_log.technical_summaries_page"))
+        # Show all logs regardless of category
+        keyword = request.args.get("keyword", "").strip()
+        status = request.args.get("status", "").strip()
+        scope = request.args.get("scope", "active").strip() or "active"
+        if scope not in {"active", "deleted", "all"}:
+            scope = "active"
+        today = date.today()
+        cal_year = int(request.args.get("cal_year", today.year))
+        cal_month = int(request.args.get("cal_month", today.month))
+        if cal_month < 1:
+            cal_month = 1
+        elif cal_month > 12:
+            cal_month = 12
+        db_path = default_db_path()
+        pub_days = published_dates_in_month(db_path, cal_year, cal_month)
+        # prev / next month
+        if cal_month == 1:
+            prev_year, prev_month = cal_year - 1, 12
+        else:
+            prev_year, prev_month = cal_year, cal_month - 1
+        if cal_month == 12:
+            next_year, next_month = cal_year + 1, 1
+        else:
+            next_year, next_month = cal_year, cal_month + 1
+        # Use a generic config for all logs
+        config = {
+            "list_title": "全部文档",
+            "show_symbol": True,
+            "show_event_date": True,
+            "event_date_label": "事件日期",
+        }
+        return render_template(
+            "operation_log/list.html",
+            logs=list_logs(db_path, keyword=keyword, status=status, scope=scope),
+            recent_actions=recent_audits_by_category(db_path, category=None),
+            stats=dashboard_stats(db_path, category=None),
+            archives=monthly_archives(db_path, category=None),
+            symbols=symbol_groups(db_path, category=None),
+            keyword=keyword,
+            status=status,
+            category=None,
+            scope=scope,
+            page_config=config,
+            status_labels=STATUS_LABELS,
+            cal_year=cal_year,
+            cal_month=cal_month,
+            cal_matrix=cal_matrix,
+            pub_days=pub_days,
+            prev_year=prev_year,
+            prev_month=prev_month,
+            next_year=next_year,
+            next_month=next_month,
+            today=today,
+        )
 
     @blueprint.get("/technical-summaries")
     @login_required
