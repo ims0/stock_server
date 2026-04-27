@@ -35,7 +35,7 @@ from .repository import (
 
 CATEGORY_SETTINGS = {
     "technical_summary": {
-        "list_title": "文档",
+        "list_title": "复盘文档",
         "hero_title": "复盘文档",
         "hero_copy": "",
         "new_title": "新建文档",
